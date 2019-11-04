@@ -1,4 +1,3 @@
-
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -55,7 +54,7 @@ typedef struct
 
 
 void creat_cache(int s, int E, int b);
-void print_help(FILE *out, char *name);
+void usage(FILE *out, char *name);
 void read_trace(char *pathname);
 Record parse(char buff[]) ;
 void init_record_list();
@@ -80,7 +79,7 @@ int main(int argc, char* argv[])
     switch (opt)
     {
     case 'h':
-      print_help(stdout, argv[0]);
+      usage(stdout, argv[0]);
       exit(EXIT_SUCCESS);
     case 'v':
       verbose = 1;
@@ -100,7 +99,7 @@ int main(int argc, char* argv[])
       break;
     default:
       /*fprintf(stderr, "erro %s\n", optarg);*/
-      print_help(stderr, argv[0]);
+      usage(stderr, argv[0]);
       exit(EXIT_FAILURE);
     }
   }
@@ -108,7 +107,7 @@ int main(int argc, char* argv[])
 
   if (s == 0 || E == 0 || b == 0 || tracefile == NULL)
   {
-    print_help(stderr, argv[0]);
+    usage(stderr, argv[0]);
     exit(EXIT_FAILURE);
   }
 
@@ -364,7 +363,7 @@ Record parse(char buff[])
   return r;
 }
 
-void print_help(FILE *out, char *name)
+void usage(FILE *out, char *name)
 {
   fprintf(out, "Usage: %s [-hv] -s <num> -E <num> -b <num> -t <file>\n", name);
   fprintf(out, "Examples:\n");
