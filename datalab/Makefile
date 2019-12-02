@@ -5,7 +5,7 @@ CC = gcc
 CFLAGS =-g -O -Wall -m32
 LIBS = -lm
 
-all: btest fshow ishow mtest
+all: btest fshow ishow
 
 btest: btest.c bits.c decl.c tests.c btest.h bits.h
 	$(CC) $(CFLAGS) $(LIBS) -o btest bits.c btest.c decl.c tests.c

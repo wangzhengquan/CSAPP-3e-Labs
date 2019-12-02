@@ -273,7 +273,6 @@ int floatFloat2Int(unsigned uf)
 unsigned floatPower2(int x)
 {
   unsigned e;
-  int E;
   int f;
 
   if (x < -149)
@@ -281,17 +280,16 @@ unsigned floatPower2(int x)
   if (x > 127)
     return 0xff << 23;
 
-  if (x <= -127)
+  if (x < -126)
   {
-    E = -126;
+    e = 0;
     f = 1 << (126 + x + 23 );
   }
   else
   {
-    E = x;
+    e = x + 127;
     f = 0;
   }
 
-  e = E + 127;
   return (e << 23) | f;
 }
