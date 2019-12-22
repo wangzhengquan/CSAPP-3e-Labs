@@ -5,16 +5,57 @@
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
 
-#define NTHREADS  4
-#define SBUFSIZE  16
+#define NTHREADS 6
+#define SBUFSIZE 32
+#define LOG(LEVEL, MSG, ...) \
+  if(LEVEL)  { \
+    printf(MSG, ##__VA_ARGS__);\
+  } \
+
+#define IOLOG(LEVEL, BUF, N) \
+  if(LEVEL)  { \
+    Rio_writen(1, BUF, N); \
+  } \
+
+const char *http_methods[] =
+{
+  "OPTIONS",
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "DELETE",
+  "TRACE",
+  0
+//  "CONNECT"
+};
+
+typedef struct request_t
+{
+  char host[100];
+  char port[20];
+  char method[20];
+  char version[20];
+  char uri[200];
+  char url[200];
+} request_t;
+
+typedef struct header_t
+{
+  size_t content_length;
+  int keep_alive;
+
+} header_t;
 
 void doit(int fd);
 int parse_url(char *url, char *host, char *port, char *uri);
+int parse_request(char *requestline, request_t *request);
+ssize_t  parse_header (rio_t *rrio, header_t *header, char *buf, size_t N);
 void *thread(void *vargp);
-
+int support(char *method);
 
 sbuf_t sbuf; /* Shared buffer of connected descriptors */
-
+int verbose = 1;
 int main(int argc, char *argv[])
 {
   int listenfd, connfd;
@@ -29,7 +70,7 @@ int main(int argc, char *argv[])
     fprintf(stderr, "usage: %s <port>\n", argv[0]);
     exit(1);
   }
-
+//Programe crashed when the browser was closed prematurely
   Signal(SIGPIPE, SIG_IGN);
   sbuf_init(&sbuf, SBUFSIZE); //line:conc:pre:initsbuf
   for (int i = 0; i < NTHREADS; i++)
@@ -53,107 +94,179 @@ void *thread(void *vargp)
   Pthread_detach(pthread_self());
   while (1)
   {
-    int connfd = sbuf_remove(&sbuf); 
+    int connfd = sbuf_remove(&sbuf);
     doit(connfd);
-    Close(connfd);
+//   Close(connfd);
   }
 }
 
 /*
  * doit - handle one HTTP request/response transaction
  */
-void doit(int fd)
+void doit(int clientfd)
 {
-  char buf[MAXLINE],  method[20], uri[MAXLINE], version[20], host[MAXLINE], url[MAXLINE],  port[20];
-  rio_t rio;
+  char buf[MAXBUF];
+  request_t request;
+  rio_t client_rio;
   ssize_t n;
+  header_t header;
 
-// --------request line begin-----------
-  Rio_readinitb(&rio, fd);
-  if (!(n = Rio_readlineb(&rio, buf, MAXLINE)))
-    return;
-  strcpy(port, "80");
-  //printf("%s", buf);
-  sscanf(buf, "%s %s %s", method, url, version);
-
-  parse_url(url, host, port, uri);
-// --------request line end-----------
-
-  //printf("url=%s\nhost=%s\nport=%s\nuri=%s\n", url, host, port, uri);
-// --------request header begin-----------
   int serverfd;
   rio_t server_rio;
-  int content_length = 0;
+  char *body;
 
-  serverfd = Open_clientfd(host, port);
+  Rio_readinitb(&client_rio, clientfd);
+
+// --------request line begin-----------
+//request_line:
+  if ((n = Rio_readlineb(&client_rio, buf, MAXLINE)) <= 0)
+  {
+    goto end;
+  }
+  parse_request(buf, &request);
+  //printf("url=%s\nhost=%s\nport=%s\nuri=%s\n", url, host, port, uri);
+  if ((serverfd = Open_clientfd(request.host, request.port)) < 0)
+  {
+    Close(clientfd);
+    return;
+  }
   Rio_readinitb(&server_rio, serverfd);
 
-  printf("-------request from client--------\n");
-  /*sprintf(buf, "%s %s %s\r\n", method, uri, "HTTP/1.0");*/
-  sprintf(buf, "%s %s %s\r\n", method, uri, version);
-  Rio_writen(serverfd, buf, strlen(buf));
-  Rio_writen(1, buf, strlen(buf));
-  //strcat(header, buf);
-  do
+//transfer:
+  LOG(verbose, "-------request from client--------\n");
+  sprintf(buf, "%s %s %s\r\n", request.method, request.uri, request.version);
+  n = strlen(buf);
+  if (Rio_writen(serverfd, buf, n) < n)
+    goto end;
+
+  IOLOG(verbose, buf, n);
+// --------request line end-----------
+
+// --------request header begin-----------
+  if ((n = parse_header(&client_rio, &header, buf, MAXBUF)) > 0)
   {
-    n = Rio_readlineb(&rio, buf, MAXLINE);
-    if (strstr(buf, "Proxy-Connection"))
-    {
-      continue;
-    }
-    else if (strstr(buf, "Connection"))
-    {
-      strcpy(buf, "Connection: close\r\n");
-      n = strlen(buf);
-    }
-
-    Rio_writen(serverfd, buf, n);
-    Rio_writen(1, buf, n);
-    
-
-  //  strcat(header, buf);
-    if (strstr(buf, "Content-Length"))
-    {
-      sscanf(buf, "Content-Length: %d", &content_length);
-    }
+    if (Rio_writen(serverfd, buf, n) < n)
+      goto end;
+    IOLOG(verbose, buf, n);
   }
-  while (strcmp(buf, "\r\n"));
+  else
+    goto end;
 // --------request header end-----------
-  //Rio_writen(serverfd, header, strlen(header));
-  //Rio_writen(1, header, strlen(header));
+
 
 // --------request body begin-----------
-  if (content_length > 0)
+  if (header.content_length > 0)
   {
-    n = Rio_readnb(&rio, buf, content_length);
-    Rio_writen(serverfd, buf, n);
-    Rio_writen(1, buf, n);
+    body = (char *)Malloc(header.content_length);
+    if ( (n = Rio_readnb(&client_rio, body, header.content_length)) != header.content_length)
+      goto end;
+    if (Rio_writen(serverfd, body, n) < n)
+      goto end;
+    IOLOG(verbose, body, n);
+    Free(body);
   }
 // --------request body end-----------
 
 
-  printf("-------response to client--------\n");
+  LOG(verbose, "-------response to client--------\n");
 // --------response header begin-----------
+  if ((n = parse_header(&server_rio, &header, buf, MAXBUF)) > 0)
+  {
+    if (Rio_writen(clientfd, buf, n) < n)
+      goto end;
+    IOLOG(verbose, buf, n);
+  }
+  else
+    goto end;
+// --------response header end-----------
+//
+// --------response body begin-----------
+  if (header.content_length > 0)
+  {
+    body = (char *)Malloc(header.content_length);
+    n = Rio_readnb(&server_rio, body, header.content_length);
+    if (Rio_writen(clientfd, body, n) != n )
+      goto end;
+    Free(body);
+  }
+  else
+  {
+    while ((n = Rio_readnb(&server_rio, buf, MAXLINE)) > 0)
+    {
+      if (Rio_writen(clientfd, buf, n) != n)
+        goto end;
+      // Rio_writen(1, buf, n);
+    }
+  }
+  // --------response body end-----------
+
+end:
+  Close(serverfd);
+  Close(clientfd);
+  LOG(verbose, "------close serverfd %d\n", serverfd);
+  LOG(verbose, "------close clientfd %d\n", clientfd);
+
+}
+
+ssize_t  parse_header (rio_t *rrio, header_t *header, char *buf, size_t maxsize)
+{
+  char line[MAXLINE], connection[100];
+  ssize_t n, ntotal = 0;
+  *buf = 0;
+  header->content_length = 0;
   do
   {
-    n = Rio_readlineb(&server_rio, buf, MAXLINE);
-    Rio_writen(fd, buf, n);
-    printf("%s", buf);
-  }
-  while (strcmp(buf, "\r\n"));
-// --------response header end-----------
+    if ((n = Rio_readlineb(rrio, line, MAXLINE)) <= 0 )
+      return n;
+    if (strstr(line, "Proxy-Connection"))
+    {
+      continue;
+    }
 
-// --------response body begin-----------
-  while ((n = Rio_readnb(&server_rio, buf, MAXLINE)) != 0)
+    strncat(buf, line, n);
+    ntotal += n;
+    if (maxsize < ntotal) {
+      fprintf(stderr, "parse_header out of bundary errror, buffer not big enough");
+      return -1;
+    }
+
+    if (strstr(line, "Content-Length"))
+    {
+      sscanf(line, "Content-Length: %ld", &header->content_length);
+    }
+    else if (strstr(line, "Connection"))
+    {
+      sscanf(line, "Connection: %s", connection);
+      if (strcmp(connection, "keep-alive") == 0)
+        header->keep_alive = 1;
+      else
+        header->keep_alive = 0;
+    }
+  }
+  while (strcmp(line, "\r\n"));
+  return ntotal;
+}
+
+int parse_request(char *requestline, request_t *request)
+{
+  strcpy(request->port, "80");
+  sscanf(requestline, "%s %s %s", request->method, request->url, request->version);
+  if (!support(request->method))
   {
-    Rio_writen(fd, buf, n);
-//    Rio_writen(1, buf, n);
+    fprintf(stderr, "Not implement this method:%s \n%s\n", request->method, requestline);
+    return 0;
   }
-// --------response body end-----------
-  Close(serverfd);
-  printf("------close serverfd %d\n", serverfd);
-  /*Close(fd);*/
+  parse_url(request->url, request->host, request->port, request->uri);
+  return 1;
+}
 
+int support(char *method)
+{
+  int i = 0;
+  while (http_methods[i++] != NULL)
+    if (strcmp(http_methods[i], method) == 0)
+      return 1;
+  return 0;
 }
 
 int parse_url(char *url, char *host, char *port, char *uri)
@@ -176,4 +289,3 @@ int parse_url(char *url, char *host, char *port, char *uri)
   strcpy(host, url);
   return 1;
 }
-

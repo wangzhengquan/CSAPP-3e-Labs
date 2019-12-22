@@ -5,7 +5,7 @@
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
 
-#define NTHREADS 6 
+#define NTHREADS 6
 #define SBUFSIZE 32
 #define LOG(LEVEL, MSG, ...) \
   if(LEVEL)  { \
@@ -50,8 +50,7 @@ typedef struct header_t
 void doit(int fd);
 int parse_url(char *url, char *host, char *port, char *uri);
 int parse_request(char *requestline, request_t *request);
-//int parse_header (rio_t *rrio, int wfd, size_t *content_length, int *keep_alive);
-int parse_header (rio_t *rrio, header_t *header, char *headbuf, size_t *buflen);
+ssize_t  parse_header (rio_t *rrio, header_t *header, char *buf, size_t N);
 void *thread(void *vargp);
 int support(char *method);
 
@@ -106,12 +105,11 @@ void *thread(void *vargp)
  */
 void doit(int clientfd)
 {
-  char buf[MAXLINE], headbuf[MAXBUF];
+  char buf[MAXBUF];
   request_t request;
   rio_t client_rio;
   ssize_t n;
   header_t header;
-  size_t headlen;
 
   int serverfd;
   rio_t server_rio;
@@ -145,11 +143,11 @@ void doit(int clientfd)
 // --------request line end-----------
 
 // --------request header begin-----------
-  if (parse_header(&client_rio, &header, headbuf, &headlen))
+  if ((n = parse_header(&client_rio, &header, buf, MAXBUF)) > 0)
   {
-    if (Rio_writen(serverfd, headbuf, headlen) < headlen)
+    if (Rio_writen(serverfd, buf, n) < n)
       goto end;
-    IOLOG(verbose, headbuf, headlen);
+    IOLOG(verbose, buf, n);
   }
   else
     goto end;
@@ -172,11 +170,11 @@ void doit(int clientfd)
 
   LOG(verbose, "-------response to client--------\n");
 // --------response header begin-----------
-  if (parse_header(&server_rio, &header, headbuf, &headlen))
+  if ((n = parse_header(&server_rio, &header, buf, MAXBUF)) > 0)
   {
-    if (Rio_writen(clientfd, headbuf, headlen) < headlen)
+    if (Rio_writen(clientfd, buf, n) < n)
       goto end;
-    IOLOG(verbose, headbuf, headlen);
+    IOLOG(verbose, buf, n);
   }
   else
     goto end;
@@ -210,56 +208,51 @@ end:
 
 }
 
-
-int parse_header (rio_t *rrio, header_t *header, char *headbuf, size_t *buflen)
+ssize_t  parse_header (rio_t *rrio, header_t *header, char *buf, size_t maxsize)
 {
-  char buf[MAXLINE], connection[100];
-  int n;
-  int ntotal = 0;
-  *headbuf = 0;
+  char line[MAXLINE], connection[100];
+  ssize_t n, ntotal = 0;
+  *buf = 0;
   header->content_length = 0;
   do
   {
-    if ((n = Rio_readlineb(rrio, buf, MAXLINE)) <= 0 )
-      return 0;
-    if (strstr(buf, "Proxy-Connection"))
+    if ((n = Rio_readlineb(rrio, line, MAXLINE)) <= 0 )
+      return n;
+    if (strstr(line, "Proxy-Connection"))
     {
       continue;
     }
 
-    /*if (Rio_writen(wfd, buf, n) != n)*/
-    /*return 0;*/
-    /*if (verbose)*/
-    /*Rio_writen(1, buf, n);*/
-
-
-    strncat(headbuf, buf, n);
+    strncat(buf, line, n);
     ntotal += n;
-
-    if (strstr(buf, "Content-Length"))
-    {
-      sscanf(buf, "Content-Length: %ld", &header->content_length);
+    if (maxsize < ntotal) {
+      fprintf(stderr, "parse_header out of bundary errror, buffer not big enough");
+      return -1;
     }
-    else if (strstr(buf, "Connection"))
+
+    if (strstr(line, "Content-Length"))
     {
-      sscanf(buf, "Connection: %s", connection);
+      sscanf(line, "Content-Length: %ld", &header->content_length);
+    }
+    else if (strstr(line, "Connection"))
+    {
+      sscanf(line, "Connection: %s", connection);
       if (strcmp(connection, "keep-alive") == 0)
         header->keep_alive = 1;
       else
         header->keep_alive = 0;
     }
   }
-  while (strcmp(buf, "\r\n"));
-  *buflen = ntotal;
-  return 1;
-
+  while (strcmp(line, "\r\n"));
+  return ntotal;
 }
 
 int parse_request(char *requestline, request_t *request)
 {
   strcpy(request->port, "80");
   sscanf(requestline, "%s %s %s", request->method, request->url, request->version);
-  if (!support(request->method)) {
+  if (!support(request->method))
+  {
     fprintf(stderr, "Not implement this method:%s \n%s\n", request->method, requestline);
     return 0;
   }
@@ -267,10 +260,11 @@ int parse_request(char *requestline, request_t *request)
   return 1;
 }
 
-int support(char *method) {
+int support(char *method)
+{
   int i = 0;
-  while(http_methods[i++] != NULL)
-    if(strcmp(http_methods[i], method) == 0)
+  while (http_methods[i++] != NULL)
+    if (strcmp(http_methods[i], method) == 0)
       return 1;
   return 0;
 }
