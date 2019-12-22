@@ -1,5 +1,5 @@
 /*
- * mm-naive.c - The fastest, least memory-efficient malloc package.
+ * mm-explicit.c - The fastest, least memory-efficient malloc package.
  *
  * In this naive approach, a block is allocated by simply incrementing
  * the brk pointer.  A block is pure payload. There are no headers or
