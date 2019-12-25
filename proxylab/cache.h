@@ -23,5 +23,6 @@ void cache_init(cache_t *cache);
 void cache_put(cache_t *cache, char *key, void *buf, size_t n);
 void *cache_get(cache_t *cache, char *key, ssize_t *n);
 void *cache_remove(cache_t *cache, char *key);
+void cache_clear(cache_t *cache);
 
 #endif

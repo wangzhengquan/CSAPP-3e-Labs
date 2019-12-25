@@ -2,8 +2,8 @@
 #include "sbuf.h"
 #include "cache.h"
 
-#define NTHREADS 6
-#define SBUFSIZE 32
+#define NTHREADS 8
+#define SBUFSIZE 64
 #define LOG(LEVEL, MSG, ...) \
   if(LEVEL)  { \
     printf(MSG, ##__VA_ARGS__);\
@@ -139,11 +139,12 @@ void doit(int clientfd)
   parse_request(buf, &request);
 //  printf("url=%s\nhost=%s\nport=%s\nuri=%s\n", request.url, request.host, request.port, request.uri);
 //缓存是否命中
+//printf("=========难道时堵塞在这里了？\n");
   cache_buf = cache_get(&cache, request.url, &n);
   if (cache_buf != NULL)
   {
+    LOG(verbose, "========hit=%s\n", request.url);
     Rio_writen(clientfd, cache_buf, n);
-    printf("========hit=%s\n", request.url);
   //  IOLOG(verbose, cache_buf, n);
     return;
   }
@@ -161,7 +162,6 @@ void doit(int clientfd)
   n = strlen(buf);
   if (Rio_writen(serverfd, buf, n) < n)
     goto end;
-
   IOLOG(verbose, buf, n);
 // --------request line end-----------
 
@@ -192,8 +192,6 @@ void doit(int clientfd)
 
 
   LOG(verbose, "-------response to client--------\n");
-
-
   if ((n = Rio_readlineb(&server_rio, buf, MAXLINE)) <= 0)
   {
     goto end;
@@ -278,9 +276,10 @@ void doit(int clientfd)
   {
     cache_buf = Realloc(cache_buf, content_length);
     cache_put(&cache, request.url, cache_buf, content_length);
+    LOG(verbose,"===========putto cache %s,size %ld\n", request.url, content_length);
   }
   else {
-    LOG(verbose,"abandon cache %s,too large size %ld\n", request.url, content_length);
+    LOG(verbose,"===========abandon cache %s,too large size %ld\n", request.url, content_length);
     Free(cache_buf);
   }
   // --------response body end-----------

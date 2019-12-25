@@ -49,16 +49,18 @@ void _cache_put(cache_t *cache, char *key, void *buf, size_t n)
 }
 
 
-void cache_put(cache_t *cache, char *key, void *buf, size_t n) {
+void cache_put(cache_t *cache, char *key, void *buf, size_t n)
+{
   P(&cache->w);
   _cache_put(cache, key, buf, n);
   V(&cache->w);
 }
 
-void *cache_get(cache_t *cache, char *key, ssize_t *n) {
+void *cache_get(cache_t *cache, char *key, ssize_t *n)
+{
   P(&cache->mutex);
   cache->readcnt++;
-  if(cache->readcnt == 1)
+  if (cache->readcnt == 1)
     P(&cache->w);
   V(&cache->mutex);
 
@@ -66,7 +68,7 @@ void *cache_get(cache_t *cache, char *key, ssize_t *n) {
 
   P(&cache->mutex);
   cache->readcnt--;
-  if(cache->readcnt == 0)
+  if (cache->readcnt == 0)
     V(&cache->w);
   V(&cache->mutex);
   return buf;
@@ -106,6 +108,21 @@ void *cache_remove(cache_t *cache, char *key)
     return buf;
   }
   return NULL;
+}
+
+void cache_clear(cache_t *cache)
+{
+  P(&cache->w);
+  tailq_entry_t *item;
+  while ((item = TAILQ_FIRST(&cache->my_tailq_head)) )
+  {
+    TAILQ_REMOVE(&cache->my_tailq_head, item, joint);
+    Free(item->buf);
+    Free(item);
+  }
+  hashtable_removeall(&cache->my_hashtable);
+  cache->amount = 0;
+  V(&cache->w);
 }
 
 static void evict(cache_t *cache)
