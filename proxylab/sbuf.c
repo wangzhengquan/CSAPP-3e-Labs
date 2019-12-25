@@ -3,7 +3,6 @@
 #include "sbuf.h"
 
 /* Create an empty, bounded, shared FIFO buffer with n slots */
-/* $begin sbuf_init */
 void sbuf_init(sbuf_t *sp, int n)
 {
   sp->buf = Calloc(n, sizeof(int));
@@ -13,7 +12,6 @@ void sbuf_init(sbuf_t *sp, int n)
   Sem_init(&sp->slots, 0, n);      /* Initially, buf has n empty slots */
   Sem_init(&sp->items, 0, 0);      /* Initially, buf has zero data items */
 }
-/* $end sbuf_init */
 
 /* Clean up buffer sp */
 /* $begin sbuf_deinit */

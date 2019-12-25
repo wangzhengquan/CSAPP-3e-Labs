@@ -1,9 +1,6 @@
 #include "csapp.h"
 #include "sbuf.h"
-
-/* Recommended max cache and object sizes */
-#define MAX_CACHE_SIZE 1049000
-#define MAX_OBJECT_SIZE 102400
+#include "cache.h"
 
 #define NTHREADS 6
 #define SBUFSIZE 32
@@ -40,6 +37,13 @@ typedef struct request_t
   char url[200];
 } request_t;
 
+typedef struct response_t
+{
+  char version[20];
+  int state_code;
+  char state_msg[100];
+} response_t;
+
 typedef struct header_t
 {
   size_t content_length;
@@ -50,12 +54,16 @@ typedef struct header_t
 void doit(int fd);
 int parse_url(char *url, char *host, char *port, char *uri);
 int parse_request(char *requestline, request_t *request);
-ssize_t  parse_header (rio_t *rrio, header_t *header, char *buf, size_t N);
+int parse_response(char *response_line, response_t *response);
+ssize_t  parse_header (rio_t *rrio, header_t *header, char *buf, size_t n);
 void *thread(void *vargp);
 int support(char *method);
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 sbuf_t sbuf; /* Shared buffer of connected descriptors */
+cache_t cache;
 int verbose = 1;
+
 int main(int argc, char *argv[])
 {
   int listenfd, connfd;
@@ -73,6 +81,7 @@ int main(int argc, char *argv[])
 //Programe crashed when the browser was closed prematurely
   Signal(SIGPIPE, SIG_IGN);
   sbuf_init(&sbuf, SBUFSIZE); //line:conc:pre:initsbuf
+  cache_init(&cache);
   for (int i = 0; i < NTHREADS; i++)
     Pthread_create(&tid, NULL, thread, NULL);
 
@@ -96,7 +105,7 @@ void *thread(void *vargp)
   {
     int connfd = sbuf_remove(&sbuf);
     doit(connfd);
-//   Close(connfd);
+    Close(connfd);
   }
 }
 
@@ -110,10 +119,14 @@ void doit(int clientfd)
   rio_t client_rio;
   ssize_t n;
   header_t header;
+  size_t content_length;
 
-  int serverfd;
+  int serverfd = -1;
   rio_t server_rio;
   char *body;
+  response_t response;
+  char *cache_buf;
+  char *cache_buf_ptr;
 
   Rio_readinitb(&client_rio, clientfd);
 
@@ -121,13 +134,23 @@ void doit(int clientfd)
 //request_line:
   if ((n = Rio_readlineb(&client_rio, buf, MAXLINE)) <= 0)
   {
-    goto end;
+    return;
   }
   parse_request(buf, &request);
-  //printf("url=%s\nhost=%s\nport=%s\nuri=%s\n", url, host, port, uri);
+//  printf("url=%s\nhost=%s\nport=%s\nuri=%s\n", request.url, request.host, request.port, request.uri);
+//缓存是否命中
+  cache_buf = cache_get(&cache, request.url, &n);
+  if (cache_buf != NULL)
+  {
+    Rio_writen(clientfd, cache_buf, n);
+    printf("========hit=%s\n", request.url);
+  //  IOLOG(verbose, cache_buf, n);
+    return;
+  }
+
   if ((serverfd = Open_clientfd(request.host, request.port)) < 0)
   {
-    Close(clientfd);
+    clienterror(clientfd, request.url, "404", "Not found", "Couldn't access this site!");
     return;
   }
   Rio_readinitb(&server_rio, serverfd);
@@ -169,63 +192,124 @@ void doit(int clientfd)
 
 
   LOG(verbose, "-------response to client--------\n");
+
+
+  if ((n = Rio_readlineb(&server_rio, buf, MAXLINE)) <= 0)
+  {
+    goto end;
+  }
+
+  content_length = 0;
+  cache_buf = (char *)Malloc(MAX_OBJECT_SIZE );
+  cache_buf_ptr = cache_buf;
+
+  parse_response(buf, &response);
+  if (Rio_writen(clientfd, buf, n) < n)
+  {
+    Free(cache_buf);
+    goto end;
+  }
+
+  IOLOG(verbose, buf, n);
+  content_length += n;
+  if (content_length <= MAX_OBJECT_SIZE)
+  {
+    memcpy(cache_buf_ptr, buf, n);
+    cache_buf_ptr += n;
+  }
 // --------response header begin-----------
   if ((n = parse_header(&server_rio, &header, buf, MAXBUF)) > 0)
   {
     if (Rio_writen(clientfd, buf, n) < n)
       goto end;
     IOLOG(verbose, buf, n);
-  }
-  else
-    goto end;
-// --------response header end-----------
-//
-// --------response body begin-----------
-  if (header.content_length > 0)
-  {
-    body = (char *)Malloc(header.content_length);
-    n = Rio_readnb(&server_rio, body, header.content_length);
-    if (Rio_writen(clientfd, body, n) != n )
-      goto end;
-    Free(body);
-  }
-  else
-  {
-    while ((n = Rio_readnb(&server_rio, buf, MAXLINE)) > 0)
+    content_length += n;
+    if (content_length <= MAX_OBJECT_SIZE)
     {
-      if (Rio_writen(clientfd, buf, n) != n)
-        goto end;
-      // Rio_writen(1, buf, n);
+      memcpy(cache_buf_ptr, buf, n);
+      cache_buf_ptr += n;
     }
+  }
+  else
+  {
+    Free(cache_buf);
+    goto end;
+  }
+// --------response header end-----------
+
+// --------response body begin-----------
+
+  if (response.state_code == 304)
+  {
+    //浏览器本地缓存有效
+    LOG(verbose, "-----browser cache valid-----\n");
+    Free(cache_buf);
+    goto end;
+  }
+
+  /*content_length = header.content_length;*/
+  /*if (content_length > 0 && content <= MAX_OBJECT_SIZE)*/
+  /*{*/
+  /*cache_buf = (char *)Malloc(content_length);*/
+  /*n = Rio_readnb(&server_rio, cache_buf, content_length);*/
+  /*if (n != content_length || Rio_writen(clientfd, cache_buf, n) != n )*/
+  /*{*/
+  /*Free(cache_buf);*/
+  /*goto end;*/
+  /*}*/
+  /*cache_put(&cache, header.url, cache_buf, content_length);*/
+  /*}*/
+  while ((n = Rio_readnb(&server_rio, buf, MAXBUF)) > 0)
+  {
+    if (Rio_writen(clientfd, buf, n) != n)
+    {
+      Free(cache_buf);
+      goto end;
+    }
+    content_length += n;
+    if (content_length <= MAX_OBJECT_SIZE)
+    {
+      memcpy(cache_buf_ptr, buf, n);
+      cache_buf_ptr += n;
+    }
+    // Rio_writen(1, buf, n);
+  }
+  if (content_length <= MAX_OBJECT_SIZE)
+  {
+    cache_buf = Realloc(cache_buf, content_length);
+    cache_put(&cache, request.url, cache_buf, content_length);
+  }
+  else {
+    LOG(verbose,"abandon cache %s,too large size %ld\n", request.url, content_length);
+    Free(cache_buf);
   }
   // --------response body end-----------
 
 end:
   Close(serverfd);
-  Close(clientfd);
   LOG(verbose, "------close serverfd %d\n", serverfd);
-  LOG(verbose, "------close clientfd %d\n", clientfd);
 
 }
 
-ssize_t  parse_header (rio_t *rrio, header_t *header, char *buf, size_t maxsize)
+ssize_t parse_header(rio_t *rrio, header_t *header, char *buf, size_t n)
 {
   char line[MAXLINE], connection[100];
-  ssize_t n, ntotal = 0;
+  ssize_t nline, ntotal = 0;
   *buf = 0;
   header->content_length = 0;
   do
   {
-    if ((n = Rio_readlineb(rrio, line, MAXLINE)) <= 0 )
-      return n;
+    if ((nline = Rio_readlineb(rrio, line, MAXLINE)) <= 0 )
+      return nline;
     if (strstr(line, "Proxy-Connection"))
     {
       continue;
     }
 
-    strncat(buf, line, n);
-    ntotal += n;
-    if (maxsize < ntotal) {
+    strncat(buf, line, nline);
+    ntotal += nline;
+    if (n < ntotal)
+    {
       fprintf(stderr, "parse_header out of bundary errror, buffer not big enough");
       return -1;
     }
@@ -260,23 +344,40 @@ int parse_request(char *requestline, request_t *request)
   return 1;
 }
 
+int parse_response(char *response_line, response_t *response)
+{
+  sscanf(response_line, "%s %d %s",
+         response->version, &response->state_code, response->state_msg);
+  return 1;
+}
+
+
 int support(char *method)
 {
   int i = 0;
-  while (http_methods[i++] != NULL)
+  while (http_methods[i] != NULL)
+  {
     if (strcmp(http_methods[i], method) == 0)
       return 1;
+    i++;
+  }
   return 0;
 }
 
 int parse_url(char *url, char *host, char *port, char *uri)
 {
-  char *ptr;
-  url = strstr(url, "://") + strlen("://");
-  ptr = index(url, '/');
+  char *startptr, *ptr;
+  char tmpurl[200];
+
+  strcpy(tmpurl, url);
+  //协议"http://"后的位置
+  startptr = ptr = strstr(tmpurl, "://") + strlen("://");
+  //host后的位置
+  ptr = index(startptr, '/');
   strcpy(uri, ptr);
   *ptr = '\0';
-  ptr = index(url, ':');
+  //port的位置
+  ptr = index(startptr, ':');
   if (ptr != 0)
   {
     strcpy(port, ptr + 1);
@@ -286,6 +387,29 @@ int parse_url(char *url, char *host, char *port, char *uri)
   {
     strcpy(port, "80");
   }
-  strcpy(host, url);
+  strcpy(host, startptr);
   return 1;
+}
+
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg)
+{
+  char buf[MAXLINE];
+
+  /* Print the HTTP response headers */
+  sprintf(buf, "HTTP/1.1 %s %s\r\n", errnum, shortmsg);
+  Rio_writen(fd, buf, strlen(buf));
+  sprintf(buf, "Content-type: text/html\r\n\r\n");
+  Rio_writen(fd, buf, strlen(buf));
+
+  /* Print the HTTP response body */
+  sprintf(buf, "<html><title>Error</title>");
+  Rio_writen(fd, buf, strlen(buf));
+  sprintf(buf, "<body bgcolor=""ffffff"">\r\n");
+  Rio_writen(fd, buf, strlen(buf));
+  sprintf(buf, "%s: %s\r\n", errnum, shortmsg);
+  Rio_writen(fd, buf, strlen(buf));
+  sprintf(buf, "<p>%s: %s\r\n", longmsg, cause);
+  Rio_writen(fd, buf, strlen(buf));
+  sprintf(buf, "<hr><em>The Tiny Web server</em>\r\n");
+  Rio_writen(fd, buf, strlen(buf));
 }

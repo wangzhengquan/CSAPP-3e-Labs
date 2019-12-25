@@ -75,8 +75,7 @@ void doit(int fd)
   is_static = parse_uri(uri, filename, cgiargs);       //line:netp:doit:staticcheck
   if (stat(filename, &sbuf) < 0)                       //line:netp:doit:beginnotfound
   {
-    clienterror(fd, filename, "404", "Not found",
-                "Tiny couldn't find this file");
+    clienterror(fd, filename, "404", "Not found", "Tiny couldn't find this file");
     return;
   }                                                    //line:netp:doit:endnotfound
 

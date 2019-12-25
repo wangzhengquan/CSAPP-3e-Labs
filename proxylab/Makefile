@@ -8,12 +8,24 @@ CC = gcc
 CFLAGS = -g -Wall -I .
 LDLIBS = -lpthread -lm
 
-PROGS = proxy1 proxy2 proxy3
+PROGS = proxy proxy1 proxy2 proxy3
+TESTS = hashtable_test cache_test
 
-all: $(PROGS)
+all: $(PROGS) $(TESTS)
 
 
-$(PROGS): csapp.o sbuf.o csapp.h
+proxy1: csapp.o csapp.h 
+
+proxy2: csapp.o  csapp.h sbuf.o
+
+proxy3: csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache.o cache.h
+
+proxy:  csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache.o cache.h
+
+hashtable_test: csapp.o csapp.h hashtable.o hashtable.h
+
+cache_test: csapp.o csapp.h cache.o hashtable.o
+
 #	$(CC) $(CFLAGS) proxy.o csapp.o -o proxy $(LDFLAGS)
 
 # Creates a tarball in ../proxylab-handin.tar that you can then

@@ -357,9 +357,9 @@ off_t Lseek(int fildes, off_t offset, int whence)
 
 void Close(int fd)
 {
-  int rc;
-
-  if ((rc = close(fd)) < 0)
+  if (fd < 1)
+    return;
+  if ((close(fd)) < 0)
     unix_error("Close error");
 }
 
@@ -1075,7 +1075,8 @@ int Open_clientfd(char *hostname, char *port)
 {
   int rc;
   char msg[MAXLINE];
-  if ((rc = open_clientfd(hostname, port)) < 0) {
+  if ((rc = open_clientfd(hostname, port)) < 0)
+  {
     sprintf(msg, "Open_clientfd error %s:%s", hostname, port);
     unix_error(msg);
   }
@@ -1092,6 +1093,4 @@ int Open_listenfd(char *port)
 }
 
 /* $end csapp.c */
-
-
 

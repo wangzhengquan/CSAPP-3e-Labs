@@ -75,8 +75,7 @@ void doit(int fd)
   is_static = parse_uri(uri, filename, cgiargs);       //line:netp:doit:staticcheck
   if (stat(filename, &sbuf) < 0)                       //line:netp:doit:beginnotfound
   {
-    clienterror(fd, filename, "404", "Not found",
-                "Tiny couldn't find this file");
+    clienterror(fd, filename, "404", "Not found", "Tiny couldn't find this file");
     return;
   }                                                    //line:netp:doit:endnotfound
 
@@ -165,13 +164,15 @@ void serve_static(int fd, char *filename, int filesize)
 
   /* Send response headers to client */
   get_filetype(filename, filetype);    //line:netp:servestatic:getfiletype
-  sprintf(buf, "HTTP/1.0 200 OK\r\n"); //line:netp:servestatic:beginserve
+  sprintf(buf, "HTTP/1.1 200 OK\r\n"); //line:netp:servestatic:beginserve
   Rio_writen(fd, buf, strlen(buf));
   sprintf(buf, "Server: Tiny Web Server\r\n");
   Rio_writen(fd, buf, strlen(buf));
   sprintf(buf, "Content-length: %d\r\n", filesize);
   Rio_writen(fd, buf, strlen(buf));
-  sprintf(buf, "Content-type: %s\r\n\r\n", filetype);
+  sprintf(buf, "Content-type: %s\r\n", filetype);
+  Rio_writen(fd, buf, strlen(buf));    //line:netp:servestatic:endserve
+  sprintf(buf, "Connection: %s\r\n\r\n", "keep-alive");
   Rio_writen(fd, buf, strlen(buf));    //line:netp:servestatic:endserve
 
   /* Send response body to client */
@@ -233,7 +234,7 @@ void clienterror(int fd, char *cause, char *errnum,
   char buf[MAXLINE];
 
   /* Print the HTTP response headers */
-  sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
+  sprintf(buf, "HTTP/1.1 %s %s\r\n", errnum, shortmsg);
   Rio_writen(fd, buf, strlen(buf));
   sprintf(buf, "Content-type: text/html\r\n\r\n");
   Rio_writen(fd, buf, strlen(buf));

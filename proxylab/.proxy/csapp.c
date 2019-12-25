@@ -357,9 +357,9 @@ off_t Lseek(int fildes, off_t offset, int whence)
 
 void Close(int fd)
 {
-  int rc;
-
-  if ((rc = close(fd)) < 0)
+  if (fd < 1)
+    return;
+  if ((close(fd)) < 0)
     unix_error("Close error");
 }
 
@@ -789,6 +789,7 @@ ssize_t rio_writen(int fd, void *usrbuf, size_t n)
 
   while (nleft > 0)
   {
+    /*if ((nwritten = write(fd, bufp, nleft)) <= 0)*/
     if ((nwritten = write(fd, bufp, nleft)) <= 0)
     {
       if (errno == EINTR)  /* Interrupted by sig handler return */
@@ -799,10 +800,8 @@ ssize_t rio_writen(int fd, void *usrbuf, size_t n)
     nleft -= nwritten;
     bufp += nwritten;
   }
-  return n;
+  return n - nleft;
 }
-/* $end rio_writen */
-
 
 /*
  * rio_read - This is a wrapper for the Unix read() function that
@@ -819,8 +818,7 @@ static ssize_t rio_read(rio_t *rp, char *usrbuf, size_t n)
 
   while (rp->rio_cnt <= 0)    /* Refill if buf is empty */
   {
-    rp->rio_cnt = read(rp->rio_fd, rp->rio_buf,
-                       sizeof(rp->rio_buf));
+    rp->rio_cnt = read(rp->rio_fd, rp->rio_buf, sizeof(rp->rio_buf));
     if (rp->rio_cnt < 0)
     {
       if (errno != EINTR) /* Interrupted by sig handler return */
@@ -858,7 +856,6 @@ void rio_readinitb(rio_t *rp, int fd)
 /*
  * rio_readnb - Robustly read n bytes (buffered)
  */
-/* $begin rio_readnb */
 ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n)
 {
   size_t nleft = n;
@@ -876,7 +873,6 @@ ssize_t rio_readnb(rio_t *rp, void *usrbuf, size_t n)
   }
   return (n - nleft);         /* return >= 0 */
 }
-/* $end rio_readnb */
 
 /*
  * rio_readlineb - Robustly read a text line (buffered)
@@ -1079,7 +1075,8 @@ int Open_clientfd(char *hostname, char *port)
 {
   int rc;
   char msg[MAXLINE];
-  if ((rc = open_clientfd(hostname, port)) < 0) {
+  if ((rc = open_clientfd(hostname, port)) < 0)
+  {
     sprintf(msg, "Open_clientfd error %s:%s", hostname, port);
     unix_error(msg);
   }
@@ -1096,6 +1093,4 @@ int Open_listenfd(char *port)
 }
 
 /* $end csapp.c */
-
-
 
