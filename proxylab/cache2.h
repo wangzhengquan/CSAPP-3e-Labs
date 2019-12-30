@@ -14,8 +14,10 @@ typedef struct cache_t
   hashtable_t my_hashtable;
   size_t amount;
   size_t readcnt;
-  sem_t mutex;
   sem_t w;
+
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
 } cache_t;
 
 void cache_init(cache_t *cache);

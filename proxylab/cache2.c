@@ -1,4 +1,4 @@
-#include "cache.h"
+#include "cache2.h"
 
 typedef struct tailq_cache_entry_t
 {
@@ -24,8 +24,13 @@ void cache_init(cache_t *cache)
   TAILQ_INIT(&cache->my_cache_tailq_head);
   cache->amount = 0;
   cache->readcnt = 0;
-  Sem_init(&cache->mutex, 0, 1);
+//  Sem_init(&cache->mutex, 0, 1);
   Sem_init(&cache->w, 0, 1);
+
+  pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+  pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+  memcpy(&cache->mutex, &mutex, sizeof(pthread_mutex_t ));
+  memcpy(&cache->cond, &cond, sizeof(pthread_cond_t ));
 }
 
 void _cache_put(cache_t *cache, char *key, void *buf, size_t n)
@@ -51,6 +56,14 @@ void _cache_put(cache_t *cache, char *key, void *buf, size_t n)
 
 void cache_put(cache_t *cache, char *key, void *buf, size_t n)
 {
+
+  pthread_mutex_lock(&cache->mutex);
+  while (cache->readcnt > 0)
+  {
+    pthread_cond_wait( &cache->cond, &cache->mutex );
+  }
+  pthread_mutex_unlock(&cache->mutex);
+
   P(&cache->w);
   _cache_put(cache, key, buf, n);
   V(&cache->w);
@@ -58,19 +71,22 @@ void cache_put(cache_t *cache, char *key, void *buf, size_t n)
 
 void *cache_get(cache_t *cache, char *key, ssize_t *n)
 {
-  P(&cache->mutex);
+  pthread_mutex_lock(&cache->mutex);
   cache->readcnt++;
   if (cache->readcnt == 1)
     P(&cache->w);
-  V(&cache->mutex);
+  pthread_mutex_unlock(&cache->mutex);
 
   void *buf = _cache_get(cache, key, n);
 
-  P(&cache->mutex);
+  pthread_mutex_lock(&cache->mutex);
   cache->readcnt--;
   if (cache->readcnt == 0)
+  {
     V(&cache->w);
-  V(&cache->mutex);
+    pthread_cond_signal(&cache->cond);
+  }
+  pthread_mutex_unlock(&cache->mutex);
   return buf;
 }
 

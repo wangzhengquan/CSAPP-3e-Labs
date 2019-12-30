@@ -23,13 +23,14 @@
 #include <arpa/inet.h>
 
 
+typedef struct mst {
+  char s[100];
+} mst;
 int main()
 {
-  void *buf = malloc(10);
-  strcpy(buf, "hello\n");
-
-  buf++;
-  printf("%s\n", (char *)buf);
-  printf("%ld\n", sizeof(void));
+  mst s[1];
+  strcpy(s[0].s, "hello world!!");
+  mst *sp = s;
+  printf("%ld, %ld, %ld, %s\n", sizeof(sigjmp_buf), sizeof(s), sizeof(*sp), (*sp).s);
 
 }

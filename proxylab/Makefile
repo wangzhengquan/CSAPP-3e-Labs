@@ -8,7 +8,7 @@ CC = gcc
 CFLAGS = -g -Wall -I .
 LDLIBS = -lpthread -lm
 
-PROGS = proxy proxy1 proxy2 proxy3
+PROGS = proxy proxy1 proxy2 proxy3 proxy4
 TESTS = hashtable_test cache_test
 
 all: $(PROGS) $(TESTS)
@@ -19,6 +19,8 @@ proxy1: csapp.o csapp.h
 proxy2: csapp.o  csapp.h sbuf.o
 
 proxy3: csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache.o cache.h
+
+proxy4: csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache2.o cache2.h
 
 proxy:  csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache.o cache.h
 
