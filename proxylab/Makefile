@@ -22,7 +22,7 @@ proxy3: csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache.o cache.h
 
 proxy4: csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache2.o cache2.h
 
-proxy:  csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache.o cache.h
+proxy:  csapp.o csapp.h sbuf.o sbuf.h hashtable.o hashtable.h cache2.o cache2.h
 
 hashtable_test: csapp.o csapp.h hashtable.o hashtable.h
 
