@@ -1,3 +1,6 @@
+/**
+ * 多线程+读优先级更高的缓存，性能好于前一个。
+ */
 #include "csapp.h"
 #include "sbuf.h"
 #include "cache2.h"

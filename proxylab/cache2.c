@@ -1,3 +1,6 @@
+/*
+ * 给予读更高的优先级
+ * */
 #include "cache2.h"
 
 typedef struct tailq_cache_entry_t

@@ -1,3 +1,6 @@
+/*
+ * 实现基本功能
+ */
 #include "csapp.h"
 #include "sbuf.h"
 

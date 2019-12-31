@@ -1,3 +1,6 @@
+/**
+ * 多线程支持
+ */
 #include "csapp.h"
 #include "sbuf.h"
 
