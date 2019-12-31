@@ -5,9 +5,6 @@ typedef struct tailq_cache_entry_t
   void *buf;
   char key[200];
   size_t n;
-  /*
-   * This holds the pointers to the next and previous joint in the tail queue.
-   */
   TAILQ_ENTRY(tailq_cache_entry_t) joint;
 } tailq_cache_entry_t;
 
