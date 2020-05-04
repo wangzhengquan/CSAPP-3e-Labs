@@ -232,7 +232,10 @@ int mm_init(void)
   void *free_listp;
   /* Create the initial empty heap */
   /*Prologue + Epilogue, Prologue include a header, a footer, a predecessor and a successor. Epilogue contains only a header*/
-  int initsize = ALIGN(3 * SIZE_T_SIZE + 2 * PTR_SIZE);
+  int prologue_size = 2 * SIZE_T_SIZE + 2 * PTR_SIZE;
+  int epilogue_size = SIZE_T_SIZE;
+  int initsize = ALIGN(prologue_size + epilogue_size);
+
   if ((heap_listp = mem_sbrk(initsize)) == (void *) - 1)
     return -1;
 
@@ -241,9 +244,11 @@ int mm_init(void)
 /*heap_listp point footer of the  Prologue*/
   heap_listp = heap_listp + initsize - 2 * SIZE_T_SIZE - 2 * PTR_SIZE;
 /*Prologue header and footer*/
-  PUT(HDRP(heap_listp), PACK(initsize - SIZE_T_SIZE, 1));
-  PUT(FTRP(heap_listp), PACK(initsize - SIZE_T_SIZE, 1));
+  /*PUT(HDRP(heap_listp), PACK(initsize - SIZE_T_SIZE, 1));*/
+  /*PUT(FTRP(heap_listp), PACK(initsize - SIZE_T_SIZE, 1));*/
 
+  PUT(HDRP(heap_listp), PACK(prologue_size, 1));
+  PUT(FTRP(heap_listp), PACK(prologue_size, 1));
   /**
    * here the heap_listp can be look as a ancher which concat the header and tail of free-list to form a ring, and the heap_list itself will never be used as a free block
    */
