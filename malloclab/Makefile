@@ -6,7 +6,7 @@ VERSION = 1
 HANDINDIR = .
 
 CC = gcc
-CFLAGS = -Wall -g -m64
+CFLAGS = -Wall -g -m32
 
 OBJS = mdriver.o  memlib.o fsecs.o fcyc.o clock.o ftimer.o
 
