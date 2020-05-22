@@ -73,7 +73,7 @@ team_t team =
 #define PUT_PTR(p, val)  (*(char **)(p) = (val))
 
 /* Read the size and allocated fields from a header or footer at address p */
-#define GET_SIZE(p)  (GET(p) & ~0x7)
+#define GET_SIZE(p)  (GET(p) & ~(ALIGNMENT - 1))
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
 /* Given block ptr bp, compute address of its header and footer */
