@@ -5,24 +5,21 @@ TEAM = bovik
 VERSION = 1
 HANDINDIR = .
 
-CC = gcc
-CFLAGS = -Wall -g -m32
 
-OBJS = mdriver.o  memlib.o fsecs.o fcyc.o clock.o ftimer.o
+CC = gcc
+
+INCLUDES += -I. -I./src
+# preprocessor options 
+CPPFLAGS += $(INCLUDES) 
+# compilation options
+CFLAGS += -Wall -g 
+ 
+
 
 all: mdriver
 
-mdriver: $(OBJS) mm.o
-	$(CC) $(CFLAGS) -o mdriver $(OBJS) mm.o
+mdriver: mdriver.c fsecs.c clock.c ftimer.c fcyc.c ./src/mm.c  ./src/memlib.c  
 
-mdriver.o: mdriver.c fsecs.h fcyc.h clock.h memlib.h config.h mm.h
-memlib.o: memlib.c memlib.h
-mm.o: mm.c mm.h memlib.h
-mm1.o: mm1.c mm.h memlib.h
-fsecs.o: fsecs.c fsecs.h config.h
-fcyc.o: fcyc.c fcyc.h
-ftimer.o: ftimer.c ftimer.h config.h
-clock.o: clock.c clock.h
 
 handin:
 	cp mm.c $(HANDINDIR)/$(TEAM)-$(VERSION)-mm.c
@@ -46,5 +43,6 @@ explicit: # explicit list version
 
 seglist: # segmented list version
 	rm -f mm.c mm.o; ln -s mm-seglist.c mm.c
+
 
 
