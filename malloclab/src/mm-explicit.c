@@ -110,6 +110,43 @@ static void insert_fblock (void *bp);
 
 static int is_allocated(void *ptr);
 
+/*
+ * mm_init - Initialize the memory manager
+ */
+int mm_init(void)
+{
+  /* Create the initial empty heap */
+  /*Prologue + Epilogue, Prologue include a header, a footer, a predecessor and a successor. Epilogue contains only a header*/
+  int prologue_size = 2 * SIZE_T_SIZE + 2 * PTR_SIZE;
+  int epilogue_size = SIZE_T_SIZE;
+  int initsize = ALIGN(prologue_size + epilogue_size);
+
+  if ((heap_listp = mem_sbrk(initsize)) == (void *) - 1)
+    return -1;
+
+  // Epilogue header 
+  PUT(heap_listp + initsize - SIZE_T_SIZE, PACK(0, 1));
+
+  
+  heap_listp = heap_listp + initsize - 2 * SIZE_T_SIZE - 2 * PTR_SIZE;
+  //heap_listp now point to the  Prologue
+  char * prologue_ptr =  heap_listp;
+  // Prologue header and footer
+  PUT(HDRP(prologue_ptr), PACK(prologue_size, 1));
+  PUT(FTRP(prologue_ptr), PACK(prologue_size, 1));
+  /*
+   * here the prologue_ptr can be look as a ancher which concat the header and tail of free-list to form a ring, 
+   * and the prologue_ptr itself will never be used as a free block
+   */
+  //init free linked list
+  PUT_PTR(SUCCRP(prologue_ptr), prologue_ptr);
+  PUT_PTR(PREDRP(prologue_ptr), prologue_ptr);
+  /* Extend the empty heap with a free block of CHUNKSIZE bytes */
+  if (( extend_heap(CHUNKSIZE)) == NULL)
+    return -1;
+
+  return 0;
+}
 
 /*
  * mm_malloc - Allocate a block with at least size bytes of payload
@@ -224,43 +261,6 @@ void *mm_realloc(void *ptr, size_t size)
  * The remaining routines are internal helper routines
  */
 
-/*
- * mm_init - Initialize the memory manager
- */
-int mm_init(void)
-{
-  void *free_listp;
-  /* Create the initial empty heap */
-  /*Prologue + Epilogue, Prologue include a header, a footer, a predecessor and a successor. Epilogue contains only a header*/
-  int prologue_size = 2 * SIZE_T_SIZE + 2 * PTR_SIZE;
-  int epilogue_size = SIZE_T_SIZE;
-  int initsize = ALIGN(prologue_size + epilogue_size);
-
-  if ((heap_listp = mem_sbrk(initsize)) == (void *) - 1)
-    return -1;
-
-/* Epilogue header */
-  PUT(heap_listp + initsize - SIZE_T_SIZE, PACK(0, 1));
-/*heap_listp point footer of the  Prologue*/
-  heap_listp = heap_listp + initsize - 2 * SIZE_T_SIZE - 2 * PTR_SIZE;
-/*Prologue header and footer*/
-  /*PUT(HDRP(heap_listp), PACK(initsize - SIZE_T_SIZE, 1));*/
-  /*PUT(FTRP(heap_listp), PACK(initsize - SIZE_T_SIZE, 1));*/
-
-  PUT(HDRP(heap_listp), PACK(prologue_size, 1));
-  PUT(FTRP(heap_listp), PACK(prologue_size, 1));
-  /**
-   * here the heap_listp can be look as a ancher which concat the header and tail of free-list to form a ring, and the heap_list itself will never be used as a free block
-   */
-  //init free linked list
-  PUT_PTR(SUCCRP(heap_listp), heap_listp);
-  PUT_PTR(PREDRP(heap_listp), heap_listp);
-  /* Extend the empty heap with a free block of CHUNKSIZE bytes */
-  if ((free_listp = extend_heap(CHUNKSIZE)) == NULL)
-    return -1;
-
-  return 0;
-}
 /*
  * extend_heap - Extend heap with free block and return its block pointer
  */
@@ -413,7 +413,7 @@ static int is_allocated(void *ptr)
 }
 
 /*
- * find_fit - Find a fit for a block with size bytes
+ * find_fit - Find a fit  block with size bytes
  */
 static void *find_fit(size_t size)
 {

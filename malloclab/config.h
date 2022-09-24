@@ -23,6 +23,7 @@
  */
 #define DEFAULT_TRACEFILES \
 	"short2.rep", \
+	"corners.rep", \
 	"malloc.rep", \
 	"binary-bal.rep", \
 	"coalescing-bal.rep", \

@@ -166,7 +166,7 @@ int main(int argc, char **argv)
   /*
    * Read and interpret the command line arguments
    */
-  while ((c = getopt(argc, argv, "f:t:v:hgal")) != EOF)
+  while ((c = getopt(argc, argv, "f:t:vVhgal")) != EOF)
   {
     switch (c)
     {
@@ -178,6 +178,7 @@ int main(int argc, char **argv)
       if ((tracefiles = realloc(tracefiles, 2 * sizeof(char *))) == NULL)
         unix_error("ERROR: realloc failed in main");
       strcpy(tracedir, "./");
+      printf("tracefile=%s\n", optarg);
       tracefiles[0] = strdup(optarg);
       tracefiles[1] = NULL;
       break;
@@ -195,8 +196,11 @@ int main(int argc, char **argv)
       run_libc = 1;
       break;
     case 'v': /* Print per-trace performance breakdown */
-      verbose = atoi(optarg);
-      break;
+        verbose = 1;
+        break;
+    case 'V': /* Be more verbose than -v */
+        verbose = 2;
+        break;
     case 'h': /* Print this message */
       usage();
       exit(0);
