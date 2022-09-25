@@ -140,6 +140,8 @@ static void unix_error(char *msg);
 static void malloc_error(int tracenum, int opnum, char *msg);
 static void app_error(char *msg);
 
+char **tracefiles = NULL;  /* null-terminated array of trace file names */
+
 /**************
  * Main routine
  **************/
@@ -147,7 +149,7 @@ int main(int argc, char **argv)
 {
   int i;
   char c;
-  char **tracefiles = NULL;  /* null-terminated array of trace file names */
+  
   int num_tracefiles = 0;    /* the number of traces in that array */
   trace_t *trace = NULL;     /* stores a single trace file in memory */
   range_t *ranges = NULL;    /* keeps track of block extents for one trace */
@@ -273,14 +275,14 @@ int main(int argc, char **argv)
     {
       trace = read_trace(tracedir, tracefiles[i]);
       libc_stats[i].ops = trace->num_ops;
-      if (verbose )
+      if (verbose > 1)
         printf("Checking libc malloc for correctness...\n ");
       libc_stats[i].valid = eval_libc_valid(trace, i);
       if (libc_stats[i].valid)
       {
         reset_system_mm(trace);
         speed_params.trace = trace;
-        if (verbose )
+        if (verbose > 1)
           printf("Checking libc performance...\n");
         libc_stats[i].secs = fsecs(eval_libc_speed, &speed_params);
       }
@@ -565,12 +567,12 @@ static trace_t *read_trace(char *tracedir, char *filename)
 
   /* We'll keep an array of pointers to the allocated blocks here... */
   if ((trace->blocks =
-         (char **)malloc(trace->num_ids * sizeof(char *))) == NULL)
+         (char **)calloc(trace->num_ids , sizeof(char *))) == NULL)
     unix_error("malloc 3 failed in read_trace");
 
   /* ... along with the corresponding byte sizes of each block */
   if ((trace->block_sizes =
-         (size_t *)malloc(trace->num_ids * sizeof(size_t))) == NULL)
+         (size_t *)calloc(trace->num_ids , sizeof(size_t))) == NULL)
     unix_error("malloc 4 failed in read_trace");
 
   /* read every request line in the trace file */
@@ -962,6 +964,9 @@ static int eval_libc_valid(trace_t *trace, int tracenum)
   for (i = 0;  i < trace->num_ops;  i++)
   {
     index = trace->ops[i].index;
+    if(index < 0)
+      continue;
+
     switch (trace->ops[i].type)
     {
 
@@ -976,11 +981,12 @@ static int eval_libc_valid(trace_t *trace, int tracenum)
 
     case REALLOC: /* realloc */
       newsize = trace->ops[i].size;
-      oldp = trace->blocks[trace->ops[i].index];
+      oldp = trace->blocks[index];
       newp = realloc(oldp, newsize);
       if (newsize == 0)
       {
         trace->blocks[index] = 0;
+        trace->block_sizes[index] = 0;
         break;
       }
 
@@ -989,12 +995,16 @@ static int eval_libc_valid(trace_t *trace, int tracenum)
         malloc_error(tracenum, i, "libc realloc failed");
         unix_error("System message");
       }
-      trace->blocks[trace->ops[i].index] = newp;
+      trace->blocks[index] = newp;
+      trace->block_sizes[index] = newsize;
       break;
 
     case FREE: /* free */
+     // printf("tracefile=%s, index=%d\n", tracefiles[tracenum], index);
       free(trace->blocks[index]);
+
       trace->blocks[index] = 0;
+      trace->block_sizes[index] = 0;
       break;
 
     default:
@@ -1021,6 +1031,8 @@ static void eval_libc_speed(void *ptr)
   for (i = 0;  i < trace->num_ops;  i++)
   {
     index = trace->ops[i].index;
+    if(index < 0)
+      continue;
     switch (trace->ops[i].type)
     {
     case ALLOC: /* malloc */
@@ -1037,6 +1049,7 @@ static void eval_libc_speed(void *ptr)
       if (newsize == 0)
       {
         trace->blocks[index] = 0;
+        trace->block_sizes[index] = 0;
         break;
       }
 
@@ -1044,12 +1057,14 @@ static void eval_libc_speed(void *ptr)
         unix_error("realloc failed in eval_libc_speed\n");
 
       trace->blocks[index] = newp;
+      trace->block_sizes[index] = newsize;
       break;
 
     case FREE: /* free */
       block = trace->blocks[index];
       free(block);
       trace->blocks[index] = 0;
+      trace->block_sizes[index] = 0;
       break;
     }
   }
