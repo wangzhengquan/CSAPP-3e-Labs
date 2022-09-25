@@ -27,7 +27,7 @@ team_t team =
   /* Team name */
   "ateam",
   /* First member's full name */
-  "Wang zheng",
+  "zheng Wang",
   /* First member's email address */
   "wangzhengquan85@126.com",
   /* Second member's full name (leave blank if none) */
@@ -37,8 +37,6 @@ team_t team =
 };
 
 /* $begin mallocmacros */
-/* single word (4) or double word (8) alignment */
-#define ALIGNMENT 8
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size_t)(size) + (ALIGNMENT-1)) & ~(ALIGNMENT - 1))
@@ -46,17 +44,13 @@ team_t team =
 /* Returns true if p is ALIGNMENT-byte aligned */
 #define IS_ALIGNED(p)  ((((size_t)(p)) & (ALIGNMENT - 1)) == 0)
 
-/*
- * If NEXT_FIT defined use next fit search, else use first-fit search
- */
-//#define NEXT_FITx
 
 /* Basic constants and macros */
-#define SIZE_T_SIZE (sizeof(size_t))
+#define WSIZE (sizeof(size_t)) /* Word and header/footer size (bytes) */
 
 #define PTR_SIZE (sizeof(void *))
 
-#define MIN_BLOCK_SIZE (ALIGN( (SIZE_T_SIZE << 1) + SIZE_T_SIZE + (PTR_SIZE << 1) ))
+#define MIN_BLOCK_SIZE (ALIGN( (WSIZE << 1) + WSIZE + (PTR_SIZE << 1) ))
 
 #define CHUNKSIZE  (1<<12)  /* Extend heap by this amount (bytes) */  //line:vm:mm:endconst
 
@@ -77,15 +71,13 @@ team_t team =
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
 /* Given block ptr bp, compute address of its header and footer */
-#define HDRP(bp)       ((char *)(bp) - SIZE_T_SIZE)
-#define FTRP(bp)       ((char *)(bp) + GET_SIZE(HDRP(bp)) - 2 * SIZE_T_SIZE)
+#define HDRP(bp)       ((char *)(bp) - WSIZE)
+#define FTRP(bp)       ((char *)(bp) + GET_SIZE(HDRP(bp)) - 2 * WSIZE)
 
-//#define FIRSTER(heap_listp)       ((char **)(heap_listp))
-//#define LASTER(heap_listp)       ((char **)(heap_listp) + 1)
 
 /* Given block ptr bp, compute address of next and previous blocks */
-#define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - SIZE_T_SIZE)))
-#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - 2 * SIZE_T_SIZE)))
+#define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
+#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - 2 * WSIZE)))
 
 /*Given block ptr bp, return address where sotre the next and pre free-block's address in linked list*/
 #define SUCCRP(bp)       ((char **)(bp) + 1)
@@ -95,7 +87,7 @@ team_t team =
 #define NEXT_FBLKP(bp) (*SUCCRP(bp))
 #define PREV_FBLKP(bp) (*PREDRP(bp))
 
-/* $end mallocmacros */
+/* $end malloc macros */
 
 /* Global variables */
 static char *heap_listp = 0;  /* Pointer to first block */
@@ -115,20 +107,24 @@ static int is_allocated(void *ptr);
  */
 int mm_init(void)
 {
+  /* 
+   * Prologue represent the start of whole block , it also represet the start and the end of free block linklist, 
+   * Epilogue represent the end of whole block.
+   */
   /* Create the initial empty heap */
   /*Prologue + Epilogue, Prologue include a header, a footer, a predecessor and a successor. Epilogue contains only a header*/
-  int prologue_size = 2 * SIZE_T_SIZE + 2 * PTR_SIZE;
-  int epilogue_size = SIZE_T_SIZE;
+  int prologue_size = 2 * WSIZE + 2 * PTR_SIZE;
+  int epilogue_size = WSIZE;
   int initsize = ALIGN(prologue_size + epilogue_size);
 
   if ((heap_listp = mem_sbrk(initsize)) == (void *) - 1)
     return -1;
-
+//printf("heap_listp=%p, initsize=%d\n", heap_listp, initsize);
   // Epilogue header 
-  PUT(heap_listp + initsize - SIZE_T_SIZE, PACK(0, 1));
+  PUT(heap_listp + initsize - WSIZE, PACK(0, 1));
 
   
-  heap_listp = heap_listp + initsize - 2 * SIZE_T_SIZE - 2 * PTR_SIZE;
+  heap_listp = heap_listp + initsize - 2 * WSIZE - 2 * PTR_SIZE;
   //heap_listp now point to the  Prologue
   char * prologue_ptr =  heap_listp;
   // Prologue header and footer
@@ -167,7 +163,7 @@ void *mm_malloc(size_t size)
   if (size == 0)
     return NULL;
  /*the allocator must adjust the requested block size to allow room for the header and the footer,  and the predecessor and successor which reside in the payload for free list, and to satisfy the double-word alignment requirement. */
-  newsize = ALIGN(size +  (SIZE_T_SIZE << 1) +  (PTR_SIZE << 1) );
+  newsize = ALIGN(size +  (WSIZE << 1) +  (PTR_SIZE << 1) );
 
   /* Search the free list for a fit */
   if ((ptr = find_fit(newsize)) != NULL)
@@ -368,10 +364,11 @@ static void* place(void *bp, size_t size)
 {
   size_t csize = GET_SIZE(HDRP(bp));
 
-
   if ((csize - size) >= MIN_BLOCK_SIZE)
   {
-    //if the left block size was greater than MIN_BLOCK_SIZE, split the original freee block
+    /*
+    * if the left block size was greater than MIN_BLOCK_SIZE, split the original freee block
+    */
 
     //free list keep no change
     PUT(HDRP(bp), PACK(csize - size, 0));
@@ -389,6 +386,28 @@ static void* place(void *bp, size_t size)
   }
   return bp;
 }
+
+
+/**
+ * find_fit - Find a fit  block with size bytes
+ */
+static void *find_fit(size_t size)
+{
+
+  void *bp;
+
+  for (bp = NEXT_FBLKP(heap_listp); bp != heap_listp; bp = NEXT_FBLKP(bp))
+  {
+    if (!GET_ALLOC(HDRP(bp)) && (size <= GET_SIZE(HDRP(bp))))
+    {
+      return bp;
+    }
+  }
+  return NULL; /* No fit */
+}
+
+// =============================check heap========================
+
 
 static int is_allocated(void *ptr)
 {
@@ -412,25 +431,6 @@ static int is_allocated(void *ptr)
 
 }
 
-/*
- * find_fit - Find a fit  block with size bytes
- */
-static void *find_fit(size_t size)
-{
-
-  void *bp;
-
-  for (bp = NEXT_FBLKP(heap_listp); bp != heap_listp; bp = NEXT_FBLKP(bp))
-  {
-    if (!GET_ALLOC(HDRP(bp)) && (size <= GET_SIZE(HDRP(bp))))
-    {
-      return bp;
-    }
-  }
-  return NULL; /* No fit */
-}
-
-// =============================check heap========================
 static void printblock(void *bp)
 {
   size_t hsize, halloc, fsize, falloc;
@@ -473,7 +473,7 @@ static int checkblocklist(int verbose)
   if (verbose > 1)
     printf("Heap (%p):\n", heap_listp);
 
-  /*if ((GET_SIZE(HDRP(heap_listp)) != 2 * SIZE_T_SIZE) || !GET_ALLOC(HDRP(heap_listp)))*/
+  /*if ((GET_SIZE(HDRP(heap_listp)) != 2 * WSIZE) || !GET_ALLOC(HDRP(heap_listp)))*/
   /*printf("Bad prologue header\n");*/
 
   for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
