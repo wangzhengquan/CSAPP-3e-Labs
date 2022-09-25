@@ -33,3 +33,4 @@
 *.tar
 *.tar.gz
 .vscode/
+malloclab/mdriver

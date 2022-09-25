@@ -50,7 +50,9 @@ team_t team =
 
 #define PTR_SIZE (sizeof(void *))
 
-#define MIN_BLOCK_SIZE (ALIGN( (WSIZE << 1) + WSIZE + (PTR_SIZE << 1) ))
+// #define MIN_BLOCK_SIZE (ALIGN( (WSIZE << 1) + WSIZE + (PTR_SIZE << 1) ))
+
+#define MIN_BLOCK_SIZE (ALIGN( (WSIZE << 1) + (PTR_SIZE << 1) ))
 
 #define CHUNKSIZE  (1<<12)  /* Extend heap by this amount (bytes) */  //line:vm:mm:endconst
 
@@ -162,8 +164,17 @@ void *mm_malloc(size_t size)
   /* Ignore spurious requests */
   if (size == 0)
     return NULL;
- /*the allocator must adjust the requested block size to allow room for the header and the footer,  and the predecessor and successor which reside in the payload for free list, and to satisfy the double-word alignment requirement. */
-  newsize = ALIGN(size +  (WSIZE << 1) +  (PTR_SIZE << 1) );
+
+  if(size < (PTR_SIZE << 1)){
+    size = (PTR_SIZE << 1);
+  }
+
+ /* 
+  * the allocator must adjust the requested block size to allow room for the header and the footer,  
+  * and the predecessor and successor which reside in the payload for free list, 
+  * and to satisfy the double-word alignment requirement. 
+  */
+  newsize = ALIGN(size +  (WSIZE << 1)  );
 
   /* Search the free list for a fit */
   if ((ptr = find_fit(newsize)) != NULL)
@@ -212,7 +223,7 @@ void mm_free(void *ptr)
 /*
  * mm_realloc - Naive implementation of realloc
  */
-void *mm_realloc(void *ptr, size_t size)
+void *mm_realloc1(void *ptr, size_t size)
 {
   size_t oldsize;
   void *newptr;
@@ -244,7 +255,7 @@ void *mm_realloc(void *ptr, size_t size)
   }
 
   /* Copy the old data. */
-  oldsize = GET_SIZE(HDRP(ptr));
+  oldsize = GET_SIZE(HDRP(ptr)) - (WSIZE << 1);
   if (size < oldsize) oldsize = size;
   memcpy(newptr, ptr, oldsize);
 
@@ -252,6 +263,105 @@ void *mm_realloc(void *ptr, size_t size)
   mm_free(ptr);
 
   return newptr;
+}
+
+void *mm_realloc2(void *ptr, size_t size)
+{
+  size_t oldsize, newsize, allocsize;
+  void *newptr;
+
+  /* If size == 0 then this is just free, and we return NULL. */
+  if (size == 0)
+  {
+    mm_free(ptr);
+    return 0;
+  }
+
+  /* If oldptr is NULL, then this is just malloc. */
+  if (ptr == NULL)
+  {
+    return mm_malloc(size);
+  }
+
+  if(size < (PTR_SIZE << 1)){
+    size = PTR_SIZE << 1;
+  }
+
+  allocsize = ALIGN(size +  (WSIZE << 1) );
+
+  // 新块小于旧块的情况
+  oldsize = GET_SIZE(HDRP(ptr));
+  newsize = allocsize;
+  if (newsize <= oldsize) {
+    // no necessary to memcpy
+    if ((oldsize - newsize) >= MIN_BLOCK_SIZE)
+    {
+      PUT(HDRP(ptr), PACK(newsize, 1));
+      PUT(FTRP(ptr), PACK(newsize, 1));
+      //printf("mm_realloc 1 ptr=%p, HDRP=%p, FTRP=%p\n",ptr, HDRP(ptr), FTRP(ptr));
+      newptr = ptr;
+      ptr = NEXT_BLKP(ptr);
+      PUT(HDRP(ptr), PACK(oldsize - newsize, 0));
+      PUT(FTRP(ptr), PACK(oldsize - newsize, 0));
+     // printf("mm_realloc 2 ptr=%p, HDRP=%p, FTRP=%p\n",ptr, HDRP(ptr), FTRP(ptr));
+      coalesce(ptr);
+       
+      return newptr;
+
+    }
+    else return ptr;
+
+  }
+
+  // 下一个相邻块空闲的情况
+  newsize = oldsize;
+  char *nptr = NEXT_BLKP(ptr);
+
+  while(!GET_ALLOC(HDRP(nptr)) && GET_SIZE(HDRP(nptr)) > 0 && newsize < allocsize){
+    newsize += GET_SIZE(HDRP(nptr));
+
+    PUT(HDRP(ptr), PACK(newsize, 1));
+    PUT(FTRP(ptr), PACK(newsize, 1));
+
+    rm_fblock(nptr);
+    nptr = NEXT_BLKP(ptr);
+  }
+
+  if(newsize >= allocsize){
+    if(newsize-allocsize >= MIN_BLOCK_SIZE){
+      PUT(HDRP(ptr), PACK(allocsize, 1));
+      PUT(FTRP(ptr), PACK(allocsize, 1));
+      newptr = ptr;
+      ptr = NEXT_BLKP(ptr);
+      PUT(HDRP(ptr), PACK(newsize-allocsize, 0));
+      PUT(FTRP(ptr), PACK(newsize-allocsize, 0));
+     // printf("mm_realloc 2 ptr=%p, HDRP=%p, FTRP=%p\n",ptr, HDRP(ptr), FTRP(ptr));
+      coalesce(ptr);
+      return newptr;
+    } else return ptr;
+
+  }
+  
+  // 不满足上面的两种情况
+  newptr = mm_malloc(size);
+  /* If realloc() fails the original block is left untouched  */
+  if (!newptr)
+  {
+    return 0;
+  }
+
+  oldsize = oldsize - (WSIZE << 1);
+  /* Copy the old data. */
+  memcpy(newptr, ptr, oldsize);
+
+  /* Free the old block. */
+  mm_free(ptr);
+
+  return newptr;
+}
+
+void *mm_realloc(void *ptr, size_t size){
+  mm_realloc2(ptr, size);
 }
 /*
  * The remaining routines are internal helper routines
@@ -264,12 +374,12 @@ void *mm_realloc(void *ptr, size_t size)
 static void *extend_heap(size_t size)
 {
   char *bp;
-  size = ALIGN(size);
 
   if ((long)(bp = mem_sbrk(size)) == -1)
     return NULL;
 
   /* Initialize free block header/footer and the epilogue header */
+  // 此时的HDRP(bp)就是epilogue
   PUT(HDRP(bp), PACK(size, 0));         /* Free block header */   
   PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */
   PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
@@ -457,9 +567,10 @@ static int checkblock(void *bp)
     printf("Error: %p is not doubleword aligned\n", bp);
     return 0;
   }
+  //printf("bp=%p, HDRP=%p, FTRP=%p, size=%d\n", bp, HDRP(bp), FTRP(bp), GET_SIZE(HDRP(bp)));
   if (GET(HDRP(bp)) != GET(FTRP(bp)))
   {
-    printf("Error: header does not match footer\n");
+    printf("Error: %p header does not match footer \n", bp);
     return 0;
   }
   return 1;
@@ -468,6 +579,7 @@ static int checkblock(void *bp)
 static int checkblocklist(int verbose)
 {
   int valid = 1;
+  int i =0;
   char *bp = heap_listp;
 
   if (verbose > 1)
@@ -478,13 +590,16 @@ static int checkblocklist(int verbose)
 
   for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))
   {
+
     if (verbose > 1)
       printblock(bp);
 
     if (!checkblock(bp))
     {
       valid = 0;
+      return valid;
     }
+    i++;
   }
 
   if ((GET_SIZE(HDRP(bp)) != 0) || !(GET_ALLOC(HDRP(bp))))

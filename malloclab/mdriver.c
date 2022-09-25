@@ -291,7 +291,7 @@ int main(int argc, char **argv)
       printf("\nResults for libc malloc:\n");
       printresults(num_tracefiles, libc_stats);
     }
-    return 0;
+    // return 0;
   }
 
   /*
@@ -344,64 +344,6 @@ int main(int argc, char **argv)
 }
 
 
-static void print_statistics_result(stats_t * mm_stats, int num_tracefiles) {
-  int i, numcorrect;
-  /* temporaries used to compute the performance index */
-  double secs, ops, util, avg_mm_util, avg_mm_throughput, p1, p2, performance;
-
-  /*
-   * Accumulate the aggregate statistics for the student's mm package
-   */
-  secs = 0;
-  ops = 0;
-  util = 0;
-  numcorrect = 0;
-  for (i = 0; i < num_tracefiles; i++)
-  {
-    secs += mm_stats[i].secs;
-    ops += mm_stats[i].ops;
-    util += mm_stats[i].util;
-    if (mm_stats[i].valid)
-      numcorrect++;
-  }
-  avg_mm_util = util / num_tracefiles;
-
-  /*
-   * Compute and print the performance index
-   */
-  if (errors == 0)
-  {
-    avg_mm_throughput = ops / secs;
-
-    p1 = UTIL_WEIGHT * avg_mm_util;
-    if (avg_mm_throughput > AVG_LIBC_THRUPUT)
-    {
-      p2 = (double)(1.0 - UTIL_WEIGHT);
-    }
-    else
-    {
-      p2 = ((double) (1.0 - UTIL_WEIGHT)) *
-           (avg_mm_throughput / AVG_LIBC_THRUPUT);
-    }
-
-    performance = (p1 + p2) * 100.0;
-    printf("Performance = %.0f (Utilization) + %.0f (Throughput) = %.0f/100\n",
-           p1 * 100,
-           p2 * 100,
-           performance);
-
-  }
-  else   /* There were errors */
-  {
-    performance = 0.0;
-    printf("Terminated with %d errors\n", errors);
-  }
-
-  
-  printf("Correct:%d/%d\n", numcorrect, num_tracefiles);
-  printf("Performance:%.0f\n", performance);
-  
-}
 
 
 /*****************************************************************
@@ -433,9 +375,7 @@ static int add_range(range_t **ranges, char *lo, int size, int tracenum, int opn
     return 0;
   }
 
-  /*sprintf(msg, "--Payload (%p:%p=%lu) lies outside heap (%p:%p=%lu)",*/
-  /*lo, hi, hi-lo, mem_heap_lo(), mem_heap_hi(), mem_heap_hi()-mem_heap_lo());*/
-  /*malloc_error(tracenum, opnum, msg);*/
+  
   /* The payload must lie within the extent of the heap */
   if ((lo < (char *)mem_heap_lo()) || (lo > (char *)mem_heap_hi()) ||
       (hi < (char *)mem_heap_lo()) || (hi > (char *)mem_heap_hi()))
@@ -446,13 +386,14 @@ static int add_range(range_t **ranges, char *lo, int size, int tracenum, int opn
     return 0;
   }
 
+
   /* The payload must not overlap any other payloads */
   for (p = *ranges;  p != NULL;  p = p->next)
   {
     if ((lo >= p->lo && lo <= p-> hi) || (hi >= p->lo && hi <= p->hi))
     {
-      sprintf(msg, "Payload (%p:%p) overlaps another payload (%p:%p)\n",
-              lo, hi, p->lo, p->hi);
+      sprintf(msg, "Payload (%p:%p:%d) overlaps another payload (%p:%p:%d)\n",
+              lo, hi, hi-lo+1, p->lo, p->hi, p->hi-p->lo+1);
       malloc_error(tracenum, opnum, msg);
       return 0;
     }
@@ -464,6 +405,7 @@ static int add_range(range_t **ranges, char *lo, int size, int tracenum, int opn
    */
   if ((p = (range_t *)malloc(sizeof(range_t))) == NULL)
     unix_error("malloc error in add_range");
+
   p->next = *ranges;
   p->lo = lo;
   p->hi = hi;
@@ -570,13 +512,11 @@ static trace_t *read_trace(char *tracedir, char *filename)
     unix_error("malloc 2 failed in read_trace");
 
   /* We'll keep an array of pointers to the allocated blocks here... */
-  if ((trace->blocks =
-         (char **)calloc(trace->num_ids , sizeof(char *))) == NULL)
+  if ((trace->blocks = (char **)calloc(trace->num_ids , sizeof(char *))) == NULL)
     unix_error("malloc 3 failed in read_trace");
 
   /* ... along with the corresponding byte sizes of each block */
-  if ((trace->block_sizes =
-         (size_t *)calloc(trace->num_ids , sizeof(size_t))) == NULL)
+  if ((trace->block_sizes = (size_t *)calloc(trace->num_ids , sizeof(size_t))) == NULL)
     unix_error("malloc 4 failed in read_trace");
 
   /* read every request line in the trace file */
@@ -637,6 +577,22 @@ void free_trace(trace_t *trace)
  * and throughput of the libc and mm malloc packages.
  **********************************************************************/
 
+static void printOps(traceop_t * op){
+  switch (op->type)
+  {
+    case ALLOC: 
+      printf("alloc ");
+      break;
+    case REALLOC: 
+      printf("realloc ");
+      break;
+    case FREE: 
+      printf("free ");
+      break;
+
+  }
+  printf("%d %d\n", op->index, op->size);
+}
 /*
  * eval_mm_valid - Check the mm malloc package for correctness
  */
@@ -661,13 +617,15 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
     malloc_error(tracenum, 0, "mm_init failed.");
     return 0;
   }
-
+// printf("tracenum=%d\n", tracenum);
   /* Interpret each operation in the trace in order */
   for (i = 0;  i < trace->num_ops;  i++)
   {
     index = trace->ops[i].index;
     size = trace->ops[i].size;
 
+    if (verbose > 1)
+      printOps(&(trace->ops[i]));
     if (index < 0)
       continue;
 
@@ -719,11 +677,10 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
         return 0;
       }
 
+      remove_range(ranges, oldp);
       /* Check new block for correctness and add it to range list */
       if (add_range(ranges, newp, size, tracenum, i) == 0)
         return 0;
-
-      remove_range(ranges, oldp);
 
       /* ADDED: cgw
        * Make sure that the new block contains the data from the old
@@ -764,6 +721,8 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
       app_error("Nonexistent request type in eval_mm_valid");
     }
 
+    //printf("hello\n");
+
     if (!mm_checkheap(verbose))
     {
       sprintf(msg, "checkheap failed, newp=%p, newsize=%lx, oldp=%p, oldsize=%lx\n",
@@ -795,15 +754,14 @@ static double eval_mm_util(trace_t *trace, int tracenum, range_t **ranges)
   size_t newsize, oldsize;
   size_t max_total_size = 0, total_size = 0;
   char *newp, *oldp;
-
+  
   /* initialize the heap and the mm malloc package */
   mem_reset_brk();
   memset(trace->blocks, 0, trace->num_ids * sizeof(char *));
   memset(trace->block_sizes, 0, trace->num_ids * sizeof(size_t));
   if (mm_init() < 0)
     app_error("mm_init failed in eval_mm_util");
-
-
+  
   for (i = 0;  i < trace->num_ops;  i++)
   {
     index = trace->ops[i].index;
@@ -811,25 +769,18 @@ static double eval_mm_util(trace_t *trace, int tracenum, range_t **ranges)
     if (index < 0)
       continue;
 
-    switch (trace->ops[i].type)
-    {
-
+    switch (trace->ops[i].type){
     case ALLOC: /* mm_alloc */
-
       if ((newp = mm_malloc(newsize)) == NULL)
         app_error("mm_malloc failed in eval_mm_util");
-
       /* Remember region and size */
       trace->blocks[index] = newp;
       trace->block_sizes[index] = newsize;
-
       /* Keep track of current total size
        * of all allocated blocks */
       total_size += newsize;
-
       /* Update statistics */
-      max_total_size = (total_size > max_total_size) ?
-                       total_size : max_total_size;
+      max_total_size = (total_size > max_total_size) ? total_size : max_total_size;
       break;
 
     case REALLOC: /* mm_realloc */
@@ -1133,6 +1084,66 @@ static void printresults(int n, stats_t *stats)
 
 }
 
+
+static void print_statistics_result(stats_t * mm_stats, int num_tracefiles) {
+  int i, numcorrect;
+  /* temporaries used to compute the performance index */
+  double secs, ops, util, avg_mm_util, avg_mm_throughput, p1, p2, performance;
+
+  /*
+   * Accumulate the aggregate statistics for the student's mm package
+   */
+  secs = 0;
+  ops = 0;
+  util = 0;
+  numcorrect = 0;
+  for (i = 0; i < num_tracefiles; i++)
+  {
+    secs += mm_stats[i].secs;
+    ops += mm_stats[i].ops;
+    util += mm_stats[i].util;
+    if (mm_stats[i].valid)
+      numcorrect++;
+  }
+  avg_mm_util = util / num_tracefiles;
+
+  /*
+   * Compute and print the performance index
+   */
+  if (errors == 0)
+  {
+    avg_mm_throughput = ops / secs;
+
+    p1 = UTIL_WEIGHT * avg_mm_util;
+    if (avg_mm_throughput > AVG_LIBC_THRUPUT)
+    {
+      p2 = (double)(1.0 - UTIL_WEIGHT);
+    }
+    else
+    {
+      p2 = ((double) (1.0 - UTIL_WEIGHT)) *
+           (avg_mm_throughput / AVG_LIBC_THRUPUT);
+    }
+
+    performance = (p1 + p2) * 100.0;
+    printf("Performance = %.0f (Utilization) + %.0f (Throughput) = %.0f/100\n",
+           p1 * 100,
+           p2 * 100,
+           performance);
+
+  }
+  else   /* There were errors */
+  {
+    performance = 0.0;
+    printf("Terminated with %d errors\n", errors);
+  }
+
+  
+  printf("Correct:%d/%d\n", numcorrect, num_tracefiles);
+  printf("Performance:%.0f\n", performance);
+  
+}
+
 /*
  * app_error - Report an arbitrary application error
  */
@@ -1157,7 +1168,7 @@ void unix_error(char *msg)
 void malloc_error(int tracenum, int opnum, char *msg)
 {
   errors++;
-  printf("ERROR [trace %d, line %d]: %s\n", tracenum, LINENUM(opnum), msg);
+  fprintf(stderr, "ERROR [trace %s, line %d]: %s\n", tracefiles[tracenum], LINENUM(opnum), msg);
 }
 
 /*
