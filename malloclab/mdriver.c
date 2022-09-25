@@ -139,6 +139,7 @@ static void usage(void);
 static void unix_error(char *msg);
 static void malloc_error(int tracenum, int opnum, char *msg);
 static void app_error(char *msg);
+static void print_statistics_result(stats_t * mm_stats, int num_tracefiles);
 
 char **tracefiles = NULL;  /* null-terminated array of trace file names */
 
@@ -161,10 +162,7 @@ int main(int argc, char **argv)
   int run_libc = 0;    /* If set, run libc malloc (set by -l) */
   int autograder = 0;  /* If set, emit summary info for autograder (-g) */
 
-  /* temporaries used to compute the performance index */
-  double secs, ops, util, avg_mm_util, avg_mm_throughput, p1, p2, perfindex;
-  int numcorrect;
-
+  
   /*
    * Read and interpret the command line arguments
    */
@@ -172,9 +170,7 @@ int main(int argc, char **argv)
   {
     switch (c)
     {
-    case 'g': /* Generate summary info for the autograder */
-      autograder = 1;
-      break;
+    
     case 'f': /* Use one specific trace file only (relative to curr dir) */
       num_tracefiles = 1;
       if ((tracefiles = realloc(tracefiles, 2 * sizeof(char *))) == NULL)
@@ -342,6 +338,17 @@ int main(int argc, char **argv)
     printf("\n");
   }
 
+  print_statistics_result(mm_stats, num_tracefiles);
+
+  exit(0);
+}
+
+
+static void print_statistics_result(stats_t * mm_stats, int num_tracefiles) {
+  int i, numcorrect;
+  /* temporaries used to compute the performance index */
+  double secs, ops, util, avg_mm_util, avg_mm_throughput, p1, p2, performance;
+
   /*
    * Accumulate the aggregate statistics for the student's mm package
    */
@@ -377,26 +384,23 @@ int main(int argc, char **argv)
            (avg_mm_throughput / AVG_LIBC_THRUPUT);
     }
 
-    perfindex = (p1 + p2) * 100.0;
-    printf("Perf index = %.0f (util) + %.0f (thru) = %.0f/100\n",
+    performance = (p1 + p2) * 100.0;
+    printf("Performance = %.0f (Utilization) + %.0f (Throughput) = %.0f/100\n",
            p1 * 100,
            p2 * 100,
-           perfindex);
+           performance);
 
   }
   else   /* There were errors */
   {
-    perfindex = 0.0;
+    performance = 0.0;
     printf("Terminated with %d errors\n", errors);
   }
 
-  if (autograder)
-  {
-    printf("correct:%d\n", numcorrect);
-    printf("perfidx:%.0f\n", perfindex);
-  }
-
-  exit(0);
+  
+  printf("Correct:%d/%d\n", numcorrect, num_tracefiles);
+  printf("Performance:%.0f\n", performance);
+  
 }
 
 
@@ -669,9 +673,7 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
 
     switch (trace->ops[i].type)
     {
-
     case ALLOC: /* mm_malloc */
-
       /* Call the student's malloc */
       if ((newp = mm_malloc(size)) == NULL)
       {
@@ -959,8 +961,6 @@ static int eval_libc_valid(trace_t *trace, int tracenum)
   int i, newsize, index;
   char *p, *newp, *oldp;
 
-  /*memset(trace->blocks, 0, trace->num_ids * sizeof(char *));*/
-  /*memset(trace->block_sizes, 0, trace->num_ids * sizeof(size_t));*/
   for (i = 0;  i < trace->num_ops;  i++)
   {
     index = trace->ops[i].index;
@@ -1169,7 +1169,6 @@ static void usage(void)
   fprintf(stderr, "Options\n");
   fprintf(stderr, "\t-a           Don't check the team structure.\n");
   fprintf(stderr, "\t-f <file>    Use <file> as the trace file.\n");
-  fprintf(stderr, "\t-g           Generate summary info for autograder.\n");
   fprintf(stderr, "\t-h           Print this message.\n");
   fprintf(stderr, "\t-l           Run libc malloc as well.\n");
   fprintf(stderr, "\t-t <dir>     Directory to find default traces.\n");
