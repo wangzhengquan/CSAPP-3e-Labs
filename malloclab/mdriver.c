@@ -677,6 +677,7 @@ static int eval_mm_valid(trace_t *trace, int tracenum, range_t **ranges)
         return 0;
       }
 
+      /* Remove the old region from the range list */
       remove_range(ranges, oldp);
       /* Check new block for correctness and add it to range list */
       if (add_range(ranges, newp, size, tracenum, i) == 0)
