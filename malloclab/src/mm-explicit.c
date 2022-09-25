@@ -165,14 +165,17 @@ void *mm_malloc(size_t size)
   if (size == 0)
     return NULL;
 
+  /*
+   * Since the predecessor and successor reside in the payload for free list,  
+   * the size of payload was at least thow PTR_SIZE.
+   */
   if(size < (PTR_SIZE << 1)){
     size = (PTR_SIZE << 1);
   }
 
  /* 
   * the allocator must adjust the requested block size to allow room for the header and the footer,  
-  * and the predecessor and successor which reside in the payload for free list, 
-  * and to satisfy the double-word alignment requirement. 
+  * and to satisfy the  alignment requirement. 
   */
   newsize = ALIGN(size +  (WSIZE << 1)  );
 
