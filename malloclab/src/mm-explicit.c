@@ -86,8 +86,12 @@ team_t team =
 #define PREDRP(bp)       ((char **)(bp))
 
 /*Given block ptr bp, return the address of the next free block int the linked list  */
-#define NEXT_FBLKP(bp) (*SUCCRP(bp))
-#define PREV_FBLKP(bp) (*PREDRP(bp))
+#define GET_SUCCR(bp) (*SUCCRP(bp))
+#define GET_PREDR(bp) (*PREDRP(bp))
+
+#define SET_SUCCR(bp, val)  ( PUT_PTR( SUCCRP(bp), (val) ) )
+#define SET_PREDR(bp, val)  ( PUT_PTR( PREDRP(bp), (val) ) )
+ 
 
 /* $end malloc macros */
 
@@ -137,8 +141,8 @@ int mm_init(void)
    * and the prologue_ptr itself will never be used as a free block
    */
   //init free linked list
-  PUT_PTR(SUCCRP(prologue_ptr), prologue_ptr);
-  PUT_PTR(PREDRP(prologue_ptr), prologue_ptr);
+  SET_SUCCR(prologue_ptr, prologue_ptr);
+  SET_PREDR(prologue_ptr, prologue_ptr);
   /* Extend the empty heap with a free block of CHUNKSIZE bytes */
   if (( extend_heap(CHUNKSIZE)) == NULL)
     return -1;
@@ -399,10 +403,10 @@ static void insert_fblock (void *bp)
   //后进先出的方式插入，即插入链表头位置
 
   // insert into the header of the free list
-  PUT_PTR(SUCCRP(bp), NEXT_FBLKP(heap_listp)); //the successor of bp point to the old first free block
-  PUT_PTR(PREDRP(NEXT_FBLKP(heap_listp)), bp); //the predecessor of the old first free block point to bp
-  PUT_PTR(SUCCRP(heap_listp), bp); // successor of the ancher(锚点) point to bp
-  PUT_PTR(PREDRP(bp), heap_listp); //the predecessor of bp point to heap_listp
+  SET_SUCCR(bp, GET_SUCCR(heap_listp)); //the successor of bp point to the old first free block
+  SET_PREDR(GET_SUCCR(heap_listp), bp); //the predecessor of the old first free block point to bp
+  SET_SUCCR(heap_listp, bp); // successor of the ancher(锚点) point to bp
+  SET_PREDR(bp, heap_listp); //the predecessor of bp point to heap_listp
 
 }
 /**
@@ -411,9 +415,9 @@ static void insert_fblock (void *bp)
 static void rm_fblock(void *rbp)
 {
   // the successor of the previous block of rbp point to next block of rbp
-  PUT_PTR(SUCCRP(PREV_FBLKP(rbp)), NEXT_FBLKP(rbp));
-  // the predecessor of then next block of rbp point to previous block of rbp
-  PUT_PTR(PREDRP(NEXT_FBLKP(rbp)), PREV_FBLKP(rbp));
+  SET_SUCCR(GET_PREDR(rbp), GET_SUCCR(rbp));
+  // the predecessor of the next block of rbp point to previous block of rbp
+  SET_PREDR(GET_SUCCR(rbp), GET_PREDR(rbp));
 }
 
 /*
@@ -509,7 +513,7 @@ static void *find_fit(size_t size)
 
   void *bp;
 
-  for (bp = NEXT_FBLKP(heap_listp); bp != heap_listp; bp = NEXT_FBLKP(bp))
+  for (bp = GET_SUCCR(heap_listp); bp != heap_listp; bp = GET_SUCCR(bp))
   {
     if (!GET_ALLOC(HDRP(bp)) && (size <= GET_SIZE(HDRP(bp))))
     {
@@ -624,7 +628,7 @@ void check_freelist()
 {
   void *bp;
 
-  for (bp = NEXT_FBLKP(heap_listp); bp != heap_listp; bp = NEXT_FBLKP(bp))
+  for (bp = GET_SUCCR(heap_listp); bp != heap_listp; bp = GET_SUCCR(bp))
   {
     printfreeblock(bp);
   }
