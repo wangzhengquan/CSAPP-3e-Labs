@@ -50,12 +50,6 @@ team_t team =
 
 #define PTR_SIZE (sizeof(void *))
 
-// a header, a footer, a predecessor and a successor.
-#define MIN_BLOCK_SIZE ( (WSIZE << 1) + (PTR_SIZE << 1) )
-
-#define CHUNKSIZE  (1<<12)  /* Extend heap by this amount (bytes) */  //line:vm:mm:endconst
-
-#define MAX(x, y) ((x) > (y)? (x) : (y))
 
 /* Pack a size and allocated bit into a word and returns a value that can be stored in a header or footer */
 #define PACK(size, alloc)  ((size) | (alloc))
@@ -75,22 +69,33 @@ team_t team =
 #define HDRP(bp)       ((char *)(bp) - WSIZE)
 #define FTRP(bp)       ((char *)(bp) + GET_SIZE(HDRP(bp)) - 2 * WSIZE)
 
+#define SET_HDR(bp, size, alloc)  PUT(HDRP(bp), PACK(size, alloc))
+// the first parameter of PUT is not FTRP(bp) , cause the size parameter my be changed
+#define SET_FTR(bp, size, alloc)  PUT((char *)(bp) + (size) - 2 * WSIZE, PACK(size, alloc ))
+    
 
 /* Given block ptr bp, compute address of next and previous blocks */
-#define NEXT_BLKP(bp)  ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-#define PREV_BLKP(bp)  ((char *)(bp) - GET_SIZE(((char *)(bp) - 2 * WSIZE)))
+#define NEXT_BLKP(bp)  ( (char *)(bp) + GET_SIZE( (char *)(bp) - WSIZE ) )
+#define PREV_BLKP(bp)  ( (char *)(bp) - GET_SIZE( (char *)(bp) - 2 * WSIZE ) )
 
 /*Given block ptr bp, return address where sotre the next and pre free-block's address in linked list*/
 #define SUCCRP(bp)       ((char **)(bp) + 1)
 #define PREDRP(bp)       ((char **)(bp))
 
 /*Given block ptr bp, return the address of the next free block int the linked list  */
-#define SUCCR_BLKP(bp) (*SUCCRP(bp))
-#define PREDR_BLKP(bp) (*PREDRP(bp))
+#define GET_SUCCR(bp) (*SUCCRP(bp))
+#define GET_PREDR(bp) (*PREDRP(bp))
 
-#define SET_SUCCR_BLKP(bp, val)  ( PUT_PTR( SUCCRP(bp), (val) ) )
-#define SET_PREDR_BLKP(bp, val)  ( PUT_PTR( PREDRP(bp), (val) ) )
+#define SET_SUCCR(bp, val)   PUT_PTR( SUCCRP(bp), val ) 
+#define SET_PREDR(bp, val)   PUT_PTR( PREDRP(bp), val ) 
  
+
+// a header, a footer, a predecessor and a successor.
+#define MIN_BLOCK_SIZE ( (WSIZE << 1) + (PTR_SIZE << 1) )
+
+#define CHUNKSIZE  (1<<12)  /* Extend heap by this amount (bytes) */
+
+#define MAX(x, y) ((x) > (y)? (x) : (y))
 
 /* $end malloc macros */
 
@@ -137,16 +142,16 @@ int mm_init(void)
   //heap_listp now point to the  Prologue
   heap_listp = prologue;
   // Prologue header and footer
-  PUT(HDRP(prologue), PACK(prologue_size, 1));
-  PUT(FTRP(prologue), PACK(prologue_size, 1));
+  SET_HDR(prologue, prologue_size, 1);
+  SET_FTR(prologue, prologue_size, 1);
   /*
    * here the prologue can be look as a ancher which concat the header and tail of free-list to form a ring, 
    * and the prologue itself will never be used as a free block
    */
   //init free linked list
-  SET_SUCCR_BLKP(prologue, prologue);
-  SET_PREDR_BLKP(prologue, prologue);
-  
+  SET_SUCCR(prologue, prologue);
+  SET_PREDR(prologue, prologue);
+
   /* Extend the empty heap with a free block of CHUNKSIZE bytes */
   if (( extend_heap(CHUNKSIZE)) == NULL)
     return -1;
@@ -224,8 +229,10 @@ void mm_free(void *ptr)
     }
 
 
-  PUT(HDRP(ptr), PACK(size, 0));
-  PUT(FTRP(ptr), PACK(size, 0));
+  // PUT(HDRP(ptr), PACK(size, 0));
+  // PUT(FTRP(ptr), PACK(size, 0));
+  SET_HDR(ptr, size, 0);
+  SET_FTR(ptr, size, 0);
   coalesce(ptr);
 }
 
@@ -307,13 +314,13 @@ void *mm_realloc2(void *ptr, size_t size)
     // no necessary to memcpy
     if ((oldsize - newsize) >= MIN_BLOCK_SIZE)
     {
-      PUT(HDRP(ptr), PACK(newsize, 1));
-      PUT(FTRP(ptr), PACK(newsize, 1));
+      SET_HDR(ptr, newsize, 1);
+      SET_FTR(ptr, newsize, 1);
       //printf("mm_realloc 1 ptr=%p, HDRP=%p, FTRP=%p\n",ptr, HDRP(ptr), FTRP(ptr));
       newptr = ptr;
       ptr = NEXT_BLKP(ptr);
-      PUT(HDRP(ptr), PACK(oldsize - newsize, 0));
-      PUT(FTRP(ptr), PACK(oldsize - newsize, 0));
+      SET_HDR(ptr, oldsize - newsize, 0);
+      SET_FTR(ptr, oldsize - newsize, 0);
      // printf("mm_realloc 2 ptr=%p, HDRP=%p, FTRP=%p\n",ptr, HDRP(ptr), FTRP(ptr));
       coalesce(ptr);
        
@@ -331,8 +338,8 @@ void *mm_realloc2(void *ptr, size_t size)
   while(!GET_ALLOC(HDRP(nptr)) && GET_SIZE(HDRP(nptr)) > 0 && newsize < allocsize){
     newsize += GET_SIZE(HDRP(nptr));
 
-    PUT(HDRP(ptr), PACK(newsize, 1));
-    PUT(FTRP(ptr), PACK(newsize, 1));
+    SET_HDR(ptr, newsize, 1);
+    SET_FTR(ptr, newsize, 1);
 
     rm_fblock(nptr);
     nptr = NEXT_BLKP(ptr);
@@ -340,12 +347,12 @@ void *mm_realloc2(void *ptr, size_t size)
 
   if(newsize >= allocsize){
     if(newsize-allocsize >= MIN_BLOCK_SIZE){
-      PUT(HDRP(ptr), PACK(allocsize, 1));
-      PUT(FTRP(ptr), PACK(allocsize, 1));
+      SET_HDR(ptr, allocsize, 1);
+      SET_FTR(ptr, allocsize, 1);
       newptr = ptr;
       ptr = NEXT_BLKP(ptr);
-      PUT(HDRP(ptr), PACK(newsize-allocsize, 0));
-      PUT(FTRP(ptr), PACK(newsize-allocsize, 0));
+      SET_HDR(ptr, newsize-allocsize, 0);
+      SET_FTR(ptr, newsize-allocsize, 0);
      // printf("mm_realloc 2 ptr=%p, HDRP=%p, FTRP=%p\n",ptr, HDRP(ptr), FTRP(ptr));
       coalesce(ptr);
       return newptr;
@@ -374,9 +381,7 @@ void *mm_realloc2(void *ptr, size_t size)
 void *mm_realloc(void *ptr, size_t size){
   mm_realloc2(ptr, size);
 }
-/*
- * The remaining routines are internal helper routines
- */
+
 
 /*
  * extend_heap - Extend heap with free block and return its block pointer
@@ -391,9 +396,12 @@ static void *extend_heap(size_t size)
 
   /* Initialize free block header/footer and the epilogue header */
   // 此时的HDRP(bp)就是epilogue
-  PUT(HDRP(bp), PACK(size, 0));         /* Free block header */   
-  PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */
-  PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
+ // PUT(HDRP(bp), PACK(size, 0));         /* Free block header */   
+ // PUT(FTRP(bp), PACK(size, 0));         /* Free block footer */
+  // PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1)); /* New epilogue header */
+  SET_HDR(bp, size, 0); /* Free block header */ 
+  SET_FTR(bp, size, 0); /* Free block footer */
+  SET_HDR(NEXT_BLKP(bp), 0, 1); /* New epilogue header */
 
   /* Coalesce if the previous block was free */
   return coalesce(bp);
@@ -407,10 +415,10 @@ static void insert_fblock (void *bp)
   //后进先出的方式插入，即插入链表头位置
 
   // insert into the header of the free list
-  SET_SUCCR_BLKP(bp, SUCCR_BLKP(heap_listp)); //the successor of bp point to the old first free block
-  SET_PREDR_BLKP(SUCCR_BLKP(heap_listp), bp); //the predecessor of the old first free block point to bp
-  SET_SUCCR_BLKP(heap_listp, bp); // successor of the ancher(锚点) point to bp
-  SET_PREDR_BLKP(bp, heap_listp); //the predecessor of bp point to heap_listp
+  SET_SUCCR(bp, GET_SUCCR(heap_listp)); //the successor of bp point to the old first free block
+  SET_PREDR(GET_SUCCR(heap_listp), bp); //the predecessor of the old first free block point to bp
+  SET_SUCCR(heap_listp, bp); // successor of the ancher(锚点) point to bp
+  SET_PREDR(bp, heap_listp); //the predecessor of bp point to heap_listp
 
 }
 /**
@@ -419,9 +427,9 @@ static void insert_fblock (void *bp)
 static void rm_fblock(void *rbp)
 {
   // the successor of the previous block of rbp point to next block of rbp
-  SET_SUCCR_BLKP(PREDR_BLKP(rbp), SUCCR_BLKP(rbp));
+  SET_SUCCR(GET_PREDR(rbp), GET_SUCCR(rbp));
   // the predecessor of the next block of rbp point to previous block of rbp
-  SET_PREDR_BLKP(SUCCR_BLKP(rbp), PREDR_BLKP(rbp));
+  SET_PREDR(GET_SUCCR(rbp), GET_PREDR(rbp));
 }
 
 /*
@@ -448,8 +456,8 @@ static void *coalesce(void *bp)
   else if (prev_alloc && !next_alloc)
   {
     size += GET_SIZE(HDRP(nbp));
-    PUT(HDRP(bp), PACK(size, 0));
-    PUT(FTRP(bp), PACK(size, 0));
+    SET_HDR(bp, size, 0);
+    SET_FTR(bp, size, 0);
 
     rm_fblock(nbp);
     insert_fblock(bp);
@@ -459,18 +467,18 @@ static void *coalesce(void *bp)
   else if (!prev_alloc && next_alloc)
   {
     size += GET_SIZE(HDRP(pbp));
-    PUT(FTRP(bp), PACK(size, 0));
-    PUT(HDRP(pbp), PACK(size, 0));
     bp = pbp;
+    SET_HDR(bp, size, 0);
+    SET_FTR(bp, size, 0);
   }
   /* Case 4 */
   /*The previous and next blocks are both free.*/
   else
   {
     size += GET_SIZE(HDRP(pbp)) + GET_SIZE(FTRP(nbp));
-    PUT(HDRP(pbp), PACK(size, 0));
-    PUT(FTRP(nbp), PACK(size, 0));
     bp = pbp;
+    SET_HDR(bp, size, 0);
+    SET_FTR(bp, size, 0);
     rm_fblock(nbp);
   }
 
@@ -492,17 +500,17 @@ static void* place(void *bp, size_t size)
     */
 
     //free list keep no change
-    PUT(HDRP(bp), PACK(csize - size, 0));
-    PUT(FTRP(bp), PACK(csize - size, 0));
+    SET_HDR(bp, csize - size, 0);
+    SET_FTR(bp, csize - size, 0);
     bp = NEXT_BLKP(bp);
-    PUT(HDRP(bp), PACK(size, 1));
-    PUT(FTRP(bp), PACK(size, 1));
+    SET_HDR(bp, size, 1);
+    SET_FTR(bp, size, 1);
   }
   else
   {
     // mark allocateed
-    PUT(HDRP(bp), PACK(csize, 1));
-    PUT(FTRP(bp), PACK(csize, 1));
+    SET_HDR(bp, csize, 1);
+    SET_FTR(bp, csize, 1);
     rm_fblock(bp);
   }
   return bp;
@@ -517,7 +525,7 @@ static void *find_fit(size_t size)
 
   void *bp;
 
-  for (bp = SUCCR_BLKP(heap_listp); bp != heap_listp; bp = SUCCR_BLKP(bp))
+  for (bp = GET_SUCCR(heap_listp); bp != heap_listp; bp = GET_SUCCR(bp))
   {
     if (size <= GET_SIZE(HDRP(bp)))
     {
@@ -527,8 +535,13 @@ static void *find_fit(size_t size)
   return NULL; /* No fit */
 }
 
-// =============================check heap========================
 
+
+/*
+ * =============================check heap========================================
+ * The remaining routines are internal helper routines
+ * ===============================================================================
+ */
 
 static int is_allocated(void *ptr)
 {
@@ -632,7 +645,7 @@ void check_freelist()
 {
   void *bp;
 
-  for (bp = SUCCR_BLKP(heap_listp); bp != heap_listp; bp = SUCCR_BLKP(bp))
+  for (bp = GET_SUCCR(heap_listp); bp != heap_listp; bp = GET_SUCCR(bp))
   {
     printfreeblock(bp);
   }
