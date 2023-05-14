@@ -27,8 +27,7 @@ void sbuf_insert(sbuf_t *sp, int item)
 {
   P(&sp->slots);                          /* Wait for available slot */
   P(&sp->mutex);                          /* Lock the buffer */
-  sp->rear = (++sp->rear) % (sp->n);
-  sp->buf[sp->rear] = item;   /* Insert the item */
+  sp->buf[((sp->rear)++) % (sp->n)] = item;   /* Insert the item */
   V(&sp->mutex);                          /* Unlock the buffer */
   V(&sp->items);                          /* Announce available item */
 }
@@ -41,8 +40,7 @@ int sbuf_remove(sbuf_t *sp)
   int item;
   P(&sp->items);                          /* Wait for available item */
   P(&sp->mutex);                          /* Lock the buffer */
-  sp->front = (++sp->front) % (sp->n);
-  item = sp->buf[sp->front];  /* Remove the item */
+  item = sp->buf[((sp->front)++) % (sp->n)];  /* Remove the item */
   V(&sp->mutex);                          /* Unlock the buffer */
   V(&sp->slots);                          /* Announce available slot */
   return item;

@@ -368,14 +368,17 @@ void do_bgfg(char **argv)
 void waitfg(pid_t pid)
 {
   /*
-   *以trace06.txt为例，
+   * 以trace06.txt为例，
    *  ./myspin 4  # 子进程前台执行，主进程进入pause
    *  INT #
    *  (1) CTRL_C发送INT信号给主进程，中断pause状态,进入INT处理函数.该函数把INT信号转发给前台子进程,完成后返回上次中断的位置。
    *  (2) 主进程INT中断处理函数返回后，继续执行下一条指令,发现while循环条件依然成立又进入pause.
    *  (3) 前台子进程被INT信号终止结束生命发送CHLD信号给主进程，中断pause状态，进入CHLD处理函数,回收僵尸进程，删除对应的job,处理完成后返回上次中断的位置。
    *  (4) 主进程处理完成CHLD中断返回后，继续执行下一条指令，发现while循环条件不再成立，跳出whlile循环。
-   *
+   */
+
+
+  /*
    *  假若(3)的中断位置在while条件执行后，pause执行前，那么中断处理函数返回后会一直pause，sigsuspend可以避免这种情况。
    */
 
