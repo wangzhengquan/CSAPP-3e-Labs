@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <time.h>
 
+
 /* Misc manifest constants */
 #define MAXLINE    1024   /* max line size */
 #define MAXARGS     128   /* max args on a command line */
@@ -128,7 +129,7 @@ int main(int argc, char **argv)
   Signal(SIGCHLD, sigchld_handler);  /* Terminated or stopped child */
 
   /* This one provides a clean way to kill the shell */
-  Signal(SIGQUIT, sigquit_handler);
+  Signal(SIGQUIT, sigquit_handler); /* Ctrl + \ */
 
   /* Initialize the job list */
   initjobs(jobs);
@@ -196,6 +197,29 @@ void eval(char *cmdline)
     {
       setpgid(0, 0);
       sigprocmask(SIG_SETMASK, &pre, NULL);
+
+      if (verbose)
+        printf("%ld child %d created\n", time(NULL), getpid());
+      if (strncmp(argv[0], "./", 2) != 0 || strncmp(argv[0], "/", 1) != 0){
+        char *path = getenv("PATH");
+        if (path == NULL)
+        {
+          printf("PATH environment variable not set.\n");
+          exit(1);
+        }
+        char *p = strtok(path, ":");
+        while (p != NULL)
+        {
+          char fullpath[MAXLINE];
+          snprintf(fullpath, sizeof(fullpath), "%s/%s", p, argv[0]);
+          if (access(fullpath, X_OK) == 0){
+            argv[0] = fullpath;
+            break;
+          }
+            
+          p = strtok(NULL, ":");
+        }
+      }
       if (execve(argv[0], argv, environ) < 0)
       {
         printf("%s: Command not found.\n", argv[0]);
@@ -369,12 +393,11 @@ void waitfg(pid_t pid)
 {
   /*
    * 以trace06.txt为例，
-   *  ./myspin 4  # 子进程前台执行，主进程进入pause
-   *  INT #
-   *  (1) CTRL_C发送INT信号给主进程.
-   *  (2) 主进程中断pause状态,进入INT处理函数.该函数把INT信号转发给前台子进程,完成后返回上次中断的位置, 继续执行下一条指令,发现while循环条件依然成立又进入pause。
-   *  (3) 前台子进程被INT信号终止结束生命发送CHLD信号给主进程.
-   *  (4) 主进程再次中断pause状态，进入CHLD处理函数,回收僵尸进程，删除对应的job,处理完成后返回上次中断的位置，继续执行下一条指令，发现while循环条件不再成立，跳出whlile循环。。
+   *  (1) ./myspin 4  # 子进程前台执行，主进程进入pause
+   *  (2) CTRL_C发送INT信号给主进程.
+   *  (3) 主进程中断pause状态,进入INT处理函数(sigint_handler).该函数把INT信号转发给前台(fg)子进程,完成后返回上次中断的位置, 继续执行下一条指令,发现while循环条件依然成立又进入pause。
+   *  (4) 前台子进程被INT信号终止结束生命发送CHLD信号给主进程.
+   *  (5) 主进程再次中断pause状态，进入CHLD处理函数(sigchld_handler),回收僵尸进程，删除对应的job,处理完成后返回上次中断的位置，继续执行下一条指令，发现while循环条件不再成立，跳出whlile循环。。
    */
 
 
