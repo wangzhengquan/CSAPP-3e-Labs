@@ -34,3 +34,4 @@
 *.tar.gz
 .vscode/
 malloclab/mdriver
+shlab/tsh

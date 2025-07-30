@@ -89,6 +89,8 @@ void app_error(char *msg);
 typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
 
+void exec(char *argv[]);
+
 /*
  * main - The shell's main routine
  */
@@ -200,31 +202,7 @@ void eval(char *cmdline)
 
       if (verbose)
         printf("%ld child %d created\n", time(NULL), getpid());
-      if (strncmp(argv[0], "./", 2) != 0 || strncmp(argv[0], "/", 1) != 0){
-        char *path = getenv("PATH");
-        if (path == NULL)
-        {
-          printf("PATH environment variable not set.\n");
-          exit(1);
-        }
-        char *p = strtok(path, ":");
-        while (p != NULL)
-        {
-          char fullpath[MAXLINE];
-          snprintf(fullpath, sizeof(fullpath), "%s/%s", p, argv[0]);
-          if (access(fullpath, X_OK) == 0){
-            argv[0] = fullpath;
-            break;
-          }
-            
-          p = strtok(NULL, ":");
-        }
-      }
-      if (execve(argv[0], argv, environ) < 0)
-      {
-        printf("%s: Command not found.\n", argv[0]);
-        exit(0);
-      }
+      exec(argv);
     }
 
     //sigprocmask(SIG_BLOCK, &mask_all, NULL);
@@ -237,6 +215,34 @@ void eval(char *cmdline)
       listjob(getjobpid(jobs, pid));
   }
   return;
+}
+
+void exec(char *argv[]) {
+  if (strncmp(argv[0], "./", 2) != 0 || strncmp(argv[0], "/", 1) != 0){
+    char *path = getenv("PATH");
+    if (path == NULL)
+    {
+      printf("PATH environment variable not set.\n");
+      exit(1);
+    }
+    char *p = strtok(path, ":");
+    while (p != NULL)
+    {
+      char fullpath[MAXLINE];
+      snprintf(fullpath, sizeof(fullpath), "%s/%s", p, argv[0]);
+      if (access(fullpath, X_OK) == 0){
+        argv[0] = fullpath;
+        break;
+      }
+        
+      p = strtok(NULL, ":");
+    }
+  }
+  if (execve(argv[0], argv, environ) < 0)
+  {
+    printf("%s: Command not found.\n", argv[0]);
+    exit(0);
+  }
 }
 
 
