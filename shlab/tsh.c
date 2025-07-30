@@ -17,7 +17,7 @@
 
 /* Misc manifest constants */
 #define MAXLINE    1024   /* max line size */
-#define MAXARGS     128   /* max args on a command line */
+#define MAXARGS     1280   /* max args on a command line */
 #define MAXJOBS      16   /* max jobs at any point in time */
 #define MAXJID    1<<16   /* max job ID */
 
@@ -54,6 +54,12 @@ struct job_t                /* The job struct */
 struct job_t jobs[MAXJOBS]; /* The job list */
 /* End global variables */
 
+struct command_t
+{
+  char **argv;   /* argument list for execve() */           
+  int pipe; /* pipe flag */
+  int pfds[2];
+};
 
 /* Function prototypes */
 
@@ -61,7 +67,7 @@ struct job_t jobs[MAXJOBS]; /* The job list */
 void eval(char *cmdline);
 int builtin_cmd(char **argv);
 void do_bgfg(char **argv);
-void waitfg(pid_t pid);
+void waitfg();
 
 void sigchld_handler(int sig);
 void sigtstp_handler(int sig);
@@ -90,6 +96,7 @@ typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
 
 void exec(char *argv[]);
+void error_exit(int code, char *msg);
 
 /*
  * main - The shell's main routine
@@ -99,7 +106,7 @@ int main(int argc, char **argv)
   char c;
   char cmdline[MAXLINE];
   int emit_prompt = 1; /* emit prompt (default) */
-
+  if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) error_exit(errno, "signal");
   /* Redirect stderr to stdout (so that driver will get all output
    * on the pipe connected to stdout) */
   dup2(1, 2);
@@ -178,6 +185,7 @@ void eval(char *cmdline)
 {
   char *argv[MAXARGS]; /* Argument list execve() */
   char buf[MAXLINE];   /* Holds modified command line */
+  struct command_t cmds[128];
   int bg;              /* Should the job run in bg or fg? */
   pid_t pid;           /* Process id */
   sigset_t mask_all, mask_one, pre;
@@ -194,23 +202,68 @@ void eval(char *cmdline)
 
   if (!builtin_cmd(argv))
   {
-    sigprocmask(SIG_BLOCK, &mask_one, &pre);
-    if ((pid = fork()) == 0)     /* Child runs user job */
+    
+    int s = 0, c = 0;
+    for (int i = 0; argv[i] != NULL; i++)
     {
-      setpgid(0, 0);
-      sigprocmask(SIG_SETMASK, &pre, NULL);
-
-      if (verbose)
-        printf("%ld child %d created\n", time(NULL), getpid());
-      exec(argv);
+      if(strcmp(argv[i], "|") == 0)
+      {
+        argv[i] = NULL;
+        cmds[c++] = (struct command_t){.argv = &argv[s], .pipe = 1};
+        s = i + 1;
+      }
     }
+    cmds[c++] = (struct command_t){.argv = &argv[s], .pipe = 0};
 
+    sigprocmask(SIG_BLOCK, &mask_one, &pre);
+    int i;
+    for ( i = 0; i< c; i++) {
+      if (verbose)
+        printf("%ld executing command %d: %s\n", time(NULL), i, cmds[i].argv[0]);
+      if (cmds[i].pipe)
+      {
+        if (pipe(cmds[i].pfds) == -1) error_exit(errno, "pipe");
+      }
+      if ((pid = fork()) == 0)     /* Child runs user job */
+      {
+        setpgid(0, 0);
+        sigprocmask(SIG_SETMASK, &pre, NULL);
+
+        if (verbose)
+          printf("%ld child %d created\n", time(NULL), getpid());
+        if (cmds[i].pipe) {
+          if (close(cmds[i].pfds[0]) == -1) error_exit(errno, "close pfd[0]");
+          if (cmds[i].pfds[1] != STDOUT_FILENO) {
+            if (dup2(cmds[i].pfds[1], STDOUT_FILENO) == -1) error_exit(errno, "dup2 pfd[1]");
+            if (close(cmds[i].pfds[1]) == -1) error_exit(errno, "close pfd[1]");
+          }
+        }
+
+        if (i > 0 && cmds[i-1].pipe){
+          if (close(cmds[i-1].pfds[1]) == -1) error_exit(errno, "close pfd[1]");
+          if (cmds[i-1].pfds[0] != STDIN_FILENO) {
+            if (dup2(cmds[i-1].pfds[0], STDIN_FILENO) == -1) error_exit(errno, "dup2 cmds[i-1].pfds[0]"); 
+            if (close(cmds[i-1].pfds[0]) == -1) error_exit(errno, "close cmds[i-1].pfds[0]");
+          }
+        }
+        
+        exec(cmds[i].argv);
+      } 
+      if (i > 0 && cmds[i-1].pipe){
+        if (close(cmds[i-1].pfds[0]) == -1) error_exit(errno, "close 5");
+        if (close(cmds[i-1].pfds[1]) == -1) error_exit(errno, "close 6");
+      }
+      addjob(jobs, pid, bg ? BG : FG, cmdline);
+    }
+    if (cmds[i].pipe){
+        if (close(cmds[i].pfds[0]) == -1) error_exit(errno, "close 5");
+        if (close(cmds[i].pfds[1]) == -1) error_exit(errno, "close 6");
+    }
     //sigprocmask(SIG_BLOCK, &mask_all, NULL);
-    addjob(jobs, pid, bg ? BG : FG, cmdline);
     sigprocmask(SIG_SETMASK, &pre, NULL);
     /* Parent waits for foreground job to terminate */
     if (!bg)
-      waitfg(pid);
+      waitfg();
     else
       listjob(getjobpid(jobs, pid));
   }
@@ -395,7 +448,7 @@ void do_bgfg(char **argv)
 /*
  * waitfg - Block until process pid is no longer the foreground process
  */
-void waitfg(pid_t pid)
+void waitfg()
 {
   /*
    * 以trace06.txt为例，
@@ -494,6 +547,9 @@ void sigint_handler(int sig)
 
   int olderrno = errno;
   pid_t pid = fgpid(jobs);
+  if (pid == 0){
+    return;
+  }
   if (kill(pid, SIGINT) == -1)
   {
     unix_error("sigint_handler");
@@ -762,5 +818,12 @@ handler_t *Signal(int signum, handler_t *handler)
 void sigquit_handler(int sig)
 {
   printf("Terminating after receipt of SIGQUIT signal\n");
+  exit(1);
+}
+
+
+void error_exit(int code, char *msg) /* Posix-style error */
+{
+  fprintf(stderr, "%s: %s\n", msg, strerror(code));
   exit(1);
 }
